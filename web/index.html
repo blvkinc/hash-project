@@ -1,0 +1,277 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IntegrityGuard - File Integrity Monitor</title>
+    <meta name="description" content="Real-time file integrity monitoring and change analysis">
+    <link rel="stylesheet" href="style.css?v=tree-alerts-20260607">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
+        rel="stylesheet">
+</head>
+
+<body>
+    <!-- Toast Notifications -->
+    <div id="toastContainer" class="toast-container"></div>
+    <div class="cockpit-shell">
+    <!-- System telemetry -->
+    <header class="navbar">
+        <div class="nav-inner">
+            <div class="nav-brand">
+                <div class="brand-icon">
+                    <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+                        <rect width="28" height="28" rx="6" fill="#1F2937" />
+                        <path d="M8 14L12 18L20 10" stroke="white" stroke-width="2.5" stroke-linecap="round"
+                            stroke-linejoin="round" />
+                    </svg>
+                </div>
+                <span class="brand-name">IntegrityGuard</span>
+                <span class="brand-kicker">File Integrity Monitor</span>
+            </div>
+            <div class="nav-meter" aria-label="Analysis load">
+                <span class="meter-label">Queue</span>
+                <span class="meter-value" id="navAnalysisCount">00</span>
+                <span class="meter-bars" aria-hidden="true">
+                    <i class="is-hot"></i><i class="is-hot"></i><i class="is-hot"></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+                </span>
+            </div>
+            <div class="nav-status">
+                <div class="hash-pill" id="hashAlgorithm">Hash --</div>
+                <div class="watcher-pill" id="watcherStatus">
+                    <span class="watcher-dot"></span>
+                    <span class="watcher-label">Offline</span>
+                </div>
+                <div class="nav-time" id="navTime"></div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Command Surface -->
+    <section class="hero">
+        <div class="container">
+            <div class="hero-content">
+                <div class="hero-kicker">Integrity Monitoring</div>
+                <h1 class="hero-title">File Integrity Monitor</h1>
+            </div>
+
+            <!-- Control Bar -->
+            <div class="control-bar">
+                <div class="control-input-wrap">
+                    <svg class="control-icon" width="18" height="18" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" stroke-width="2">
+                        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                    </svg>
+                    <input type="text" id="scanPath" class="control-input"
+                        placeholder="Directory path" value=".">
+                </div>
+                <label class="control-check" for="reanalyzeExisting">
+                    <input type="checkbox" id="reanalyzeExisting">
+                        <span>Reanalyze existing files</span>
+                </label>
+                <div class="control-actions">
+                    <button class="btn btn-primary" onclick="triggerScan()" id="scanBtn">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2.5">
+                            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10" />
+                        </svg>
+                        Scan Directory
+                    </button>
+                    
+                                        <button class="btn btn-outline-success" onclick="startWatcher()" id="watchBtn">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2.5">
+                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                            <circle cx="12" cy="12" r="3" />
+                        </svg>
+                        Start Watch
+                    </button>
+                    <button class="btn btn-outline-warning" onclick="toggleSystemMonitor()" id="systemMonitorBtn">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2.5">
+                            <path d="M12 3l7 3v6c0 5-3 8-7 9-4-1-7-4-7-9V6l7-3z" />
+                        </svg>
+                        <span id="systemMonitorLabel">System Monitor: Off</span>
+                    </button>
+                    <button class="btn btn-ghost" onclick="stopWatcher()" id="stopBtn">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2.5">
+                            <rect x="6" y="6" width="12" height="12" rx="2" />
+                        </svg>
+                        Stop
+                    </button>
+                </div>
+            </div>
+            <div id="scanStatus" class="scan-feedback"></div>
+            <div id="scanProgress" class="scan-progress" hidden>
+                <div class="scan-progress-main">
+                    <span class="scan-progress-label" id="scanProgressLabel">Idle</span>
+                    <span class="scan-progress-count" id="scanProgressCount">0 / 0</span>
+                </div>
+                <div class="scan-progress-track" aria-hidden="true">
+                    <span id="scanProgressBar"></span>
+                </div>
+                <div class="scan-progress-metrics" id="scanProgressMetrics"></div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Stats -->
+    <section class="section">
+        <div class="container">
+            <div class="stats-row">
+                <div class="stat-card">
+                    <div class="stat-value" id="statFiles">0</div>
+                    <div class="stat-label">Monitored Files</div>
+                    <div class="stat-bar stat-bar-default"></div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value stat-val-pending" id="statPending">0</div>
+                    <div class="stat-label">Pending Analysis</div>
+                    <div class="stat-bar stat-bar-pending"></div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value stat-val-critical" id="statCritical">0</div>
+                    <div class="stat-label">Critical</div>
+                    <div class="stat-bar stat-bar-critical"></div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value stat-val-high" id="statHigh">0</div>
+                    <div class="stat-label">High</div>
+                    <div class="stat-bar stat-bar-high"></div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value stat-val-medium" id="statMedium">0</div>
+                    <div class="stat-label">Medium</div>
+                    <div class="stat-bar stat-bar-medium"></div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value stat-val-low" id="statLow">0</div>
+                    <div class="stat-label">Low</div>
+                    <div class="stat-bar stat-bar-low"></div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value stat-val-info" id="statInfo">0</div>
+                    <div class="stat-label">Info</div>
+                    <div class="stat-bar stat-bar-info"></div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Main Content: Sidebar + Timeline -->
+    <section class="section section-main">
+        <div class="container">
+            <!-- Filters -->
+            <div class="content-header">
+                <div class="content-title">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+                    </svg>
+                <span>File Timeline</span>
+                </div>
+                <div class="content-actions">
+                    <div class="notification-policy" aria-label="Notification policy">
+                        <label>
+                            <input type="checkbox" id="toastAlerts" checked>
+                            <span>Toasts</span>
+                        </label>
+                        <label>
+                            <input type="checkbox" id="desktopAlerts">
+                            <span>Desktop</span>
+                        </label>
+                    </div>
+                    <button class="notification-center-button" id="notificationCenterBtn" type="button"
+                        onclick="toggleNotificationCenter()">
+                        <span>Alerts</span>
+                        <span class="notification-center-count" id="notificationUnreadCount">0</span>
+                    </button>
+                    <div class="filter-group" id="filterGroup">
+                        <button class="chip active" data-filter="all" onclick="filterFiles('all', this)">All <span class="chip-count" id="filterAllCount">0</span></button>
+                        <button class="chip chip-critical" data-filter="critical"
+                            onclick="filterFiles('critical', this)">Critical <span class="chip-count" id="filterCriticalCount">0</span></button>
+                        <button class="chip chip-high" data-filter="high" onclick="filterFiles('high', this)">High <span class="chip-count" id="filterHighCount">0</span></button>
+                        <button class="chip chip-medium" data-filter="medium"
+                            onclick="filterFiles('medium', this)">Medium <span class="chip-count" id="filterMediumCount">0</span></button>
+                        <button class="chip chip-low" data-filter="low" onclick="filterFiles('low', this)">Low <span class="chip-count" id="filterLowCount">0</span></button>
+                        <button class="chip chip-info" data-filter="info" onclick="filterFiles('info', this)">Info <span class="chip-count" id="filterInfoCount">0</span></button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Two-panel layout -->
+            <div class="panel-layout">
+                <!-- LEFT: File sidebar -->
+                <aside class="file-sidebar" id="fileSidebar">
+                    <div class="sidebar-header">
+                        <span class="sidebar-title">Monitored Files</span>
+                        <span class="sidebar-count" id="sidebarCount">0</span>
+                    </div>
+                    <div class="sidebar-search">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <circle cx="11" cy="11" r="8" />
+                            <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                        </svg>
+                        <input type="text" id="fileSearch" class="sidebar-search-input" placeholder="Filter files…"
+                            oninput="filterFileList()">
+                    </div>
+                    <div class="sidebar-tools">
+                        <button type="button" onclick="setTreeExpansion(true)">Expand</button>
+                        <button type="button" onclick="setTreeExpansion(false)">Collapse</button>
+                    </div>
+                    <div class="file-list" id="fileList">
+                        <div class="empty-state-sm">
+                            <p>No monitored files</p>
+                        </div>
+                    </div>
+                </aside>
+
+                <!-- RIGHT: Timeline panel -->
+                <main class="timeline-panel" id="timelinePanel">
+                    <div class="timeline-empty" id="timelineEmpty">
+                        <div class="empty-visual">
+                            <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="1" opacity="0.25">
+                                <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+                            </svg>
+                        </div>
+                        <h3>No file selected</h3>
+                        <p>Scan results will appear here</p>
+                    </div>
+                    <div class="timeline-content" id="timelineContent" style="display:none;">
+                        <!-- Timeline header -->
+                        <div class="timeline-file-header" id="timelineHeader"></div>
+                        <!-- Timeline nodes -->
+                        <div class="timeline-track" id="timelineTrack"></div>
+                    </div>
+                </main>
+            </div>
+        </div>
+    </section>
+
+    </div>
+
+    <aside class="notification-center" id="notificationCenter" hidden>
+        <div class="notification-center-header">
+            <div>
+                <div class="notification-center-title">Alert Center</div>
+                <div class="notification-center-subtitle" id="notificationCenterSubtitle">No alerts yet</div>
+            </div>
+            <button type="button" class="notification-center-close" onclick="toggleNotificationCenter(false)">Close</button>
+        </div>
+        <div class="notification-center-actions">
+            <button type="button" onclick="markNotificationsRead()">Mark read</button>
+            <button type="button" onclick="requestDesktopNotifications()">Enable desktop</button>
+        </div>
+        <div class="notification-list" id="notificationList">
+            <div class="notification-empty">No dispatched notifications</div>
+        </div>
+    </aside>
+
+    <script src="app.js?v=tree-alerts-20260607"></script>
+</body>
+
+</html>
