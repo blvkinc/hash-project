@@ -40,6 +40,28 @@ cd hash-project
 
 Open the dashboard at [http://localhost:8000](http://localhost:8000).
 
+## Deployment Options
+
+Local service install:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/install_windows_task.ps1
+```
+
+```bash
+sudo scripts/install_systemd.sh
+```
+
+Containerized run:
+
+```bash
+mkdir watched
+docker compose up --build
+```
+
+When running in Docker, only mounted paths are visible to the scanner. The
+default compose file mounts `./watched` as `/watched`.
+
 ## Optional Local LLM
 
 The system works without an LLM by using the built-in analysis engine. For

@@ -659,6 +659,16 @@ def _chunks(values: list, size: int):
 
 # Routes
 
+@app.get("/api/health")
+def health_check():
+    """Lightweight liveness endpoint for services, containers, and CI."""
+    return {
+        "status": "ok",
+        "service": "integrityguard",
+        "hash_mode": settings.hash_mode,
+    }
+
+
 @app.get("/api/stats")
 def get_stats():
     session = SessionLocal()

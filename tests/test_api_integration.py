@@ -73,6 +73,14 @@ def _drain_analysis(ctx) -> None:
             return
 
 
+def test_health_endpoint(isolated_app):
+    response = isolated_app["client"].get("/api/health")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "ok"
+    assert payload["service"] == "integrityguard"
+
+
 def test_scan_creates_file_record_and_log(isolated_app):
     """Baseline scan -> /api/baseline lists the file with change_count >= 1."""
     ctx = isolated_app

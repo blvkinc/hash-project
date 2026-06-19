@@ -1,0 +1,24 @@
+services:
+  integrityguard:
+    build: .
+    image: integrityguard:local
+    container_name: integrityguard
+    ports:
+      - "8000:8000"
+    environment:
+      FIM_DATABASE_PATH: /app/data/file_monitor.db
+      FIM_MEMPALACE_PATH: /app/data/.mempalace_fim
+      FIM_HASH_MODE: hybrid
+      FIM_HASH_ALGORITHM: xxh3_128
+      FIM_SECURITY_HASH_ALGORITHM: blake3
+      FIM_DESKTOP_NOTIFICATIONS: "false"
+      OLLAMA_URL: http://host.docker.internal:11434/api/generate
+    volumes:
+      - integrityguard-data:/app/data
+      - ./watched:/watched
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+volumes:
+  integrityguard-data:

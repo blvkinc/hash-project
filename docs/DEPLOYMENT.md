@@ -22,6 +22,18 @@ powershell -ExecutionPolicy Bypass -File scripts/run.ps1
 
 The dashboard is available at `http://localhost:8000`.
 
+To install it as a user logon task:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/install_windows_task.ps1
+```
+
+To remove the task later:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/uninstall_windows_task.ps1
+```
+
 ## Install On Linux Or macOS
 
 ```bash
@@ -33,6 +45,53 @@ cp .env.example .env
 ```
 
 The dashboard is available at `http://localhost:8000`.
+
+To install it as a systemd service:
+
+```bash
+sudo scripts/install_systemd.sh
+```
+
+To remove the service later:
+
+```bash
+sudo scripts/uninstall_systemd.sh
+```
+
+## Docker Deployment
+
+Docker is useful when you want a repeatable application runtime. It cannot scan
+arbitrary host paths unless those paths are mounted into the container.
+
+```bash
+mkdir -p watched
+docker compose up --build
+```
+
+Open `http://localhost:8000` and scan `/watched` to inspect the mounted
+directory. To scan another host path, edit the bind mount in
+`docker-compose.yml`:
+
+```yaml
+volumes:
+  - integrityguard-data:/app/data
+  - /absolute/host/path:/watched
+```
+
+The named `integrityguard-data` volume stores `file_monitor.db` and
+`.mempalace_fim/`.
+
+Common commands:
+
+```bash
+docker compose ps
+docker compose logs -f
+docker compose down
+docker compose down -v
+```
+
+Use `docker compose down -v` only when you want to remove the persisted
+database and MemPalace state.
 
 ## Configuration
 
@@ -74,7 +133,8 @@ reverse proxy and authentication boundary.
 
 ## Windows Service Option
 
-For a workstation deployment, Task Scheduler is usually enough:
+The helper script above registers a Task Scheduler task. The manual equivalent
+is:
 
 ```powershell
 $Action = New-ScheduledTaskAction `
@@ -84,7 +144,8 @@ $Trigger = New-ScheduledTaskTrigger -AtLogOn
 Register-ScheduledTask -TaskName "IntegrityGuard" -Action $Action -Trigger $Trigger
 ```
 
-For server deployments, use a service wrapper such as NSSM and point it at:
+For server deployments that require a true Windows service, use a service
+wrapper such as NSSM and point it at:
 
 ```powershell
 .venv\Scripts\python.exe -m uvicorn core.api:app --host 127.0.0.1 --port 8000
@@ -92,7 +153,8 @@ For server deployments, use a service wrapper such as NSSM and point it at:
 
 ## Linux systemd Example
 
-Create `/etc/systemd/system/integrityguard.service`:
+The helper script above writes and enables the service. The manual equivalent is
+to create `/etc/systemd/system/integrityguard.service`:
 
 ```ini
 [Unit]
@@ -124,6 +186,7 @@ sudo systemctl status integrityguard
 Windows:
 
 ```powershell
+Invoke-RestMethod http://localhost:8000/api/health
 Invoke-RestMethod http://localhost:8000/api/stats
 Invoke-RestMethod http://localhost:8000/api/agent/activity
 ```
@@ -131,6 +194,7 @@ Invoke-RestMethod http://localhost:8000/api/agent/activity
 Linux or macOS:
 
 ```bash
+curl http://localhost:8000/api/health
 curl http://localhost:8000/api/stats
 curl http://localhost:8000/api/agent/activity
 ```
