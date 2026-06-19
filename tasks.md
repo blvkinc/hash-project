@@ -62,7 +62,8 @@ installability and the dissertation's "practical, lightweight tool" framing.*
 
 ## Phase 6: Documentation & Dissertation
 
-* [ ] **Architecture Diagrams:** Use Mermaid.js or LucidChart to show the data flow: File System -> watchdog/scanner -> SQLite (FileLog pending) -> background analyser (Stage A tier pre-filter + Stage B LLM/heuristic) -> notification dispatcher (Stage C).
+* [x] **Architecture Diagrams:** Use Mermaid.js or LucidChart to show the data flow: File System -> watchdog/scanner -> SQLite (FileLog pending) -> background analyser (Stage A tier pre-filter + Stage B LLM/heuristic) -> notification dispatcher (Stage C).
+* [x] **Dissertation Development Log:** Added `docs/DISSERTATION_DEVELOPMENT_LOG.md` covering the full development chronology, design decisions, tradeoffs, observed performance findings, current limitations, and evaluation plan.
 * [ ] **Code Quality:** Ensure all code is PEP8 compliant, typed, and documented with Docstrings.
 * [ ] **Final Write-up:** Document your findings, specifically the effectiveness of using an LLM to reduce "alert fatigue."
 
@@ -70,3 +71,19 @@ installability and the dissertation's "practical, lightweight tool" framing.*
 ## Phase 7: Debugging & Maintenance
 
 * [x] **Debug Web Interface:** Investigated 2026-05-20 via `scripts/diagnose_phase7.py`. Pipeline (background_analysis, /api/baseline, /api/files/timeline) works end-to-end; the symptom was UX: benign modifications stayed at priority='info' and the sidebar gave no visual delta when the priority chip didn't change. Fix: `FileRecord.is_baseline` now flips to `False` on first modification (scanner + watcher), and `web/app.js` shows a `MODIFIED` pill on drifted files. Regression guarded by `tests/test_api_integration.py::test_modification_flips_is_baseline_and_increments_change_count`.
+
+---
+
+## Phase 8: Agentic MemPalace Upgrade
+
+*Goal: make the agent visibly investigate important file changes, not merely attach registry wording to the system verdict.*
+
+* [x] **Persistent Memory Layer:** Use the real `mempalace` package as a derived context store seeded from the SQL baseline.
+* [x] **Baseline Memory Builder:** Build MemPalace identity memories from SQL registry entries after scans/watch initialization.
+* [x] **Typed Agent Core:** Keep a local-first MemPalace agent with optional PydanticAI/Ollama typed verdicts and deterministic content inspection.
+* [x] **Critical Event Investigation:** Add an agent investigation stage for high-risk events that checks current file state, trusted-change context, MemPalace related memories, content findings, and Windows signature status when relevant.
+* [x] **Agent-Owned Notification Narrative:** Route the agent investigation title, summary, evidence, and recommended actions into desktop/email/dashboard notification history.
+* [x] **Trusted Change Correlation:** Add first-class package-manager, installer, Windows Update, deployment, and maintenance-window correlation instead of relying only on metadata hints.
+* [x] **Richer MemPalace Retrieval:** Query by role, tier, related path history, previous verdicts, and similar content indicators; show the retrieved evidence in the event timeline.
+* [x] **UI Investigation Drawer:** Make each critical/high timeline event show agent observations, tool status, confidence, and next steps without requiring raw JSON inspection.
+* [x] **Performance Isolation:** Ensure deep agent investigation is queue-limited and reserved for critical/high or policy-selected events so baseline scanning remains fast.

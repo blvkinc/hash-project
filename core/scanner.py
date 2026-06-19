@@ -1,5 +1,5 @@
 """
-scanner.py — Directory scanning and baseline hashing.
+scanner.py  -  Directory scanning and baseline hashing.
 
 Walks a directory, hashes every file, and stores/compares against the database.
 """
@@ -20,6 +20,11 @@ from .file_identity import (
 )
 from .path_tree import assign_file_location
 from .platform_paths import get_noisy_dirs, get_file_category
+from .services.file_registry import (
+    mark_registry_inactive,
+    registry_context as build_registry_context,
+    upsert_registry_entry,
+)
 
 # Directories to skip
 EXCLUDED_DIRS = {
@@ -199,6 +204,35 @@ def _iter_baseline_hash_results(file_list: list[str], worker_count: int):
             fill_pending()
 
 
+def _scan_registry_context(
+    session: Session,
+    path: str,
+    metadata: dict | None,
+    file_hash: str | None,
+    file_id: int | None = None,
+    fast_hash: str | None = None,
+    security_hash: str | None = None,
+    hash_algorithm: str | None = None,
+    is_baseline: bool = False,
+    active: bool = True,
+) -> dict | None:
+    """Upsert registry state and return JSON-safe context for event payloads."""
+    entry = upsert_registry_entry(
+        session=session,
+        path=path,
+        metadata=metadata,
+        file_hash=file_hash,
+        fast_hash=fast_hash or file_hash,
+        security_hash=security_hash,
+        file_id=file_id,
+        hash_algorithm=hash_algorithm,
+        security_hash_algorithm=settings.security_hash_algorithm,
+        is_baseline=is_baseline,
+        active=active,
+    )
+    return build_registry_context(entry)
+
+
 def scan_and_baseline(
     root_path: str,
     reanalyze_existing: bool = False,
@@ -251,7 +285,18 @@ def scan_and_baseline(
                 record.mtime = metadata['mtime'] if metadata else None
                 record.size = metadata['size'] if metadata else None
                 attach_identity_to_record(
-                    session, record, file_path, metadata, file_hash, directory_cache
+                    session, record, file_path, metadata, file_hash,
+                    fast_hash=file_hash,
+                    directory_cache=directory_cache,
+                )
+                registry = _scan_registry_context(
+                    session=session,
+                    path=file_path,
+                    metadata=metadata,
+                    file_hash=file_hash,
+                    file_id=record.file_id,
+                    fast_hash=file_hash,
+                    is_baseline=True,
                 )
                 existing_count += 1
                 if reanalyze_existing:
@@ -262,6 +307,7 @@ def scan_and_baseline(
                             snippet=snippet,
                             metadata=metadata,
                             file_category=file_cat,
+                            registry_context=registry,
                             reanalyze=True,
                         )
                         session.add(FileLog(
@@ -278,7 +324,7 @@ def scan_and_baseline(
                     else:
                         reanalyze_skipped += 1
             else:
-                # New file — add baseline record
+                # New file  -  add baseline record
                 record = FileRecord(
                     path=file_path,
                     hash=file_hash,
@@ -287,7 +333,18 @@ def scan_and_baseline(
                     size=metadata['size'] if metadata else None,
                 )
                 attach_identity_to_record(
-                    session, record, file_path, metadata, file_hash, directory_cache
+                    session, record, file_path, metadata, file_hash,
+                    fast_hash=file_hash,
+                    directory_cache=directory_cache,
+                )
+                registry = _scan_registry_context(
+                    session=session,
+                    path=file_path,
+                    metadata=metadata,
+                    file_hash=file_hash,
+                    file_id=record.file_id,
+                    fast_hash=file_hash,
+                    is_baseline=True,
                 )
                 session.add(record)
 
@@ -315,6 +372,7 @@ def scan_and_baseline(
                     file_category=file_cat,
                     baseline_triage=baseline_triage,
                     skipped_reason=skipped_reason,
+                    registry_context=registry,
                 )
                 session.add(FileLog(
                     file_id=record.file_id,
@@ -453,13 +511,37 @@ def _scan_hash_first_baseline(
                 record.fast_hash = fast_hash
                 record.security_hash = security_hash
                 record.security_hash_algorithm = settings.security_hash_algorithm
-                assign_file_location(session, record, file_path, directory_cache)
+                attach_identity_to_record(
+                    session=session,
+                    record=record,
+                    path=file_path,
+                    metadata=metadata,
+                    file_hash=file_hash,
+                    fast_hash=fast_hash,
+                    security_hash=security_hash,
+                    directory_cache=directory_cache,
+                )
+                registry = _scan_registry_context(
+                    session=session,
+                    path=file_path,
+                    metadata=metadata,
+                    file_hash=file_hash,
+                    file_id=record.file_id,
+                    fast_hash=fast_hash,
+                    security_hash=security_hash,
+                    hash_algorithm=hash_algorithm,
+                    is_baseline=True,
+                )
                 existing_count += 1
                 if reanalyze_existing:
                     if reanalyzed_count < reanalyze_limit:
                         context = _deferred_baseline_event_context(
                             metadata=metadata,
                             file_category=get_file_category(file_path),
+                            hash_algorithm=hash_algorithm,
+                            fast_hash=fast_hash,
+                            security_hash=security_hash,
+                            registry_context=registry,
                             reanalyze=True,
                         )
                         session.add(FileLog(
@@ -479,6 +561,7 @@ def _scan_hash_first_baseline(
                                 hash_algorithm=hash_algorithm,
                                 fast_hash=fast_hash,
                                 security_hash=security_hash,
+                                registry_context=registry,
                                 reanalyze=True,
                             ),
                         ))
@@ -498,7 +581,27 @@ def _scan_hash_first_baseline(
                     security_hash=security_hash,
                     security_hash_algorithm=settings.security_hash_algorithm,
                 )
-                assign_file_location(session, record, file_path, directory_cache)
+                attach_identity_to_record(
+                    session=session,
+                    record=record,
+                    path=file_path,
+                    metadata=metadata,
+                    file_hash=file_hash,
+                    fast_hash=fast_hash,
+                    security_hash=security_hash,
+                    directory_cache=directory_cache,
+                )
+                registry = _scan_registry_context(
+                    session=session,
+                    path=file_path,
+                    metadata=metadata,
+                    file_hash=file_hash,
+                    file_id=record.file_id,
+                    fast_hash=fast_hash,
+                    security_hash=security_hash,
+                    hash_algorithm=hash_algorithm,
+                    is_baseline=True,
+                )
                 session.add(record)
 
                 file_category = get_file_category(file_path)
@@ -522,9 +625,10 @@ def _scan_hash_first_baseline(
                     hash_algorithm=hash_algorithm,
                     fast_hash=fast_hash,
                     security_hash=security_hash,
+                    registry_context=registry,
                 )
                 session.add(FileLog(
-                    file_id=None,
+                    file_id=record.file_id,
                     path=file_path,
                     event_type='new',
                     old_hash=None,
@@ -658,6 +762,7 @@ def _baseline_event_context(
     metadata: dict | None,
     file_category: str | None,
     baseline_triage: dict | None = None,
+    registry_context: dict | None = None,
     reanalyze: bool = False,
 ) -> dict:
     """Raw context preserved so later modifications can build before/after diffs."""
@@ -669,6 +774,8 @@ def _baseline_event_context(
     }
     if baseline_triage:
         context["baseline_triage"] = baseline_triage
+    if registry_context:
+        context["registry"] = registry_context
     if reanalyze:
         context["reanalyze"] = True
     return context
@@ -681,6 +788,7 @@ def _baseline_analysis_payload(
     file_category: str | None,
     baseline_triage: dict | None,
     skipped_reason: str | None = None,
+    registry_context: dict | None = None,
 ) -> dict:
     """
     Store baseline context analysis as the primary payload.
@@ -693,6 +801,7 @@ def _baseline_analysis_payload(
         metadata=metadata,
         file_category=file_category,
         baseline_triage=baseline_triage,
+        registry_context=registry_context,
     )
 
     if baseline_triage:
@@ -737,6 +846,7 @@ def _deferred_baseline_event_context(
     hash_algorithm: str | None = None,
     fast_hash: str | None = None,
     security_hash: str | None = None,
+    registry_context: dict | None = None,
     reanalyze: bool = False,
 ) -> dict:
     """Event context for hash-first rows; content is read later by analysis."""
@@ -755,6 +865,8 @@ def _deferred_baseline_event_context(
             "security_hash_pending": security_hash is None,
         },
     }
+    if registry_context:
+        context["registry"] = registry_context
     if reanalyze:
         context["reanalyze"] = True
     return context
@@ -768,6 +880,7 @@ def _hash_first_baseline_payload(
     hash_algorithm: str | None = None,
     fast_hash: str | None = None,
     security_hash: str | None = None,
+    registry_context: dict | None = None,
     reanalyze: bool = False,
 ) -> dict:
     """Minimal baseline payload stored during the fast hash capture phase."""
@@ -777,6 +890,7 @@ def _hash_first_baseline_payload(
         hash_algorithm=hash_algorithm,
         fast_hash=fast_hash,
         security_hash=security_hash,
+        registry_context=registry_context,
         reanalyze=reanalyze,
     )
     if queued_for_analysis:
@@ -947,12 +1061,12 @@ def _compare_and_log_legacy(
                         event_type='modified',
                         old_hash=old_hash,
                         new_hash=file_hash,
-                        details=f"Hash changed: {old_hash[:12]}… → {file_hash[:12]}…",
+                        details=f"Hash changed: {old_hash[:12]}... -> {file_hash[:12]}...",
                         status='pending',
                     analysis_json={"diff": snippet, "metadata": metadata, "is_baseline": False},
                     ))
 
-                    # Update record — baseline no longer matches on-disk content.
+                    # Update record  -  baseline no longer matches on-disk content.
                     record.hash = file_hash
                     record.last_seen = datetime.utcnow()
                     record.mtime = metadata['mtime'] if metadata else None
@@ -1114,7 +1228,13 @@ def compare_and_log(
                 platform_renames += 1
 
             attach_identity_to_record(
-                session, record, new_path, metadata, file_hash, directory_cache
+                session=session,
+                record=record,
+                path=new_path,
+                metadata=metadata,
+                file_hash=file_hash,
+                fast_hash=file_hash,
+                directory_cache=directory_cache,
             )
 
             # Keep legacy path-based UI queries continuous while file_id rollout
@@ -1130,6 +1250,17 @@ def compare_and_log(
             record.mtime = metadata.get('mtime') if metadata else None
             record.size = metadata.get('size') if metadata else None
             record.is_baseline = False
+            record.fast_hash = file_hash
+
+            registry = _scan_registry_context(
+                session=session,
+                path=new_path,
+                metadata=metadata,
+                file_hash=file_hash,
+                file_id=record.file_id,
+                fast_hash=file_hash,
+                is_baseline=False,
+            )
 
             session.add(FileLog(
                 file_id=record.file_id,
@@ -1146,6 +1277,7 @@ def compare_and_log(
                     "previous_path": old_path,
                     "new_path": new_path,
                     "identity_match": "platform_file_id" if platform_match else "content_hash",
+                    "registry": registry,
                 },
             ))
 
@@ -1210,7 +1342,14 @@ def compare_and_log(
                 continue
 
             attach_identity_to_record(
-                session, record, file_path, metadata, record.hash, directory_cache
+                session=session,
+                record=record,
+                path=file_path,
+                metadata=metadata,
+                file_hash=record.hash,
+                fast_hash=record.fast_hash or record.hash,
+                security_hash=record.security_hash,
+                directory_cache=directory_cache,
             )
 
             if record.mtime == metadata.get('mtime') and record.size == metadata.get('size'):
@@ -1230,6 +1369,15 @@ def compare_and_log(
                 modified_files.append(file_path)
                 old_hash = record.hash
                 snippet = _read_snippet(file_path)
+                registry = _scan_registry_context(
+                    session=session,
+                    path=file_path,
+                    metadata=metadata,
+                    file_hash=file_hash,
+                    file_id=record.file_id,
+                    fast_hash=file_hash,
+                    is_baseline=False,
+                )
                 session.add(FileLog(
                     file_id=record.file_id,
                     path=file_path,
@@ -1238,9 +1386,15 @@ def compare_and_log(
                     new_hash=file_hash,
                     details=f"Hash changed: {old_hash[:12]}... -> {file_hash[:12]}...",
                     status='pending',
-                    analysis_json={"diff": snippet, "metadata": metadata, "is_baseline": False},
+                    analysis_json={
+                        "diff": snippet,
+                        "metadata": metadata,
+                        "is_baseline": False,
+                        "registry": registry,
+                    },
                 ))
                 record.hash = file_hash
+                record.fast_hash = file_hash
                 record.is_baseline = False
             else:
                 metadata_skipped += 1
@@ -1249,7 +1403,14 @@ def compare_and_log(
             record.mtime = metadata.get('mtime')
             record.size = metadata.get('size')
             attach_identity_to_record(
-                session, record, file_path, metadata, record.hash, directory_cache
+                session=session,
+                record=record,
+                path=file_path,
+                metadata=metadata,
+                file_hash=record.hash,
+                fast_hash=record.fast_hash or record.hash,
+                security_hash=record.security_hash,
+                directory_cache=directory_cache,
             )
             _emit_progress(progress_callback, "compare", idx, len(file_list), root_path)
 
@@ -1293,11 +1454,29 @@ def compare_and_log(
                 is_baseline=False,
                 mtime=metadata.get('mtime'),
                 size=metadata.get('size'),
+                hash_algorithm=settings.hash_algorithm,
+                fast_hash=file_hash,
+                security_hash_algorithm=settings.security_hash_algorithm,
             )
             attach_identity_to_record(
-                session, record, file_path, metadata, file_hash, directory_cache
+                session=session,
+                record=record,
+                path=file_path,
+                metadata=metadata,
+                file_hash=file_hash,
+                fast_hash=file_hash,
+                directory_cache=directory_cache,
             )
             session.add(record)
+            registry = _scan_registry_context(
+                session=session,
+                path=file_path,
+                metadata=metadata,
+                file_hash=file_hash,
+                file_id=record.file_id,
+                fast_hash=file_hash,
+                is_baseline=False,
+            )
 
             snippet = _read_snippet(file_path)
             session.add(FileLog(
@@ -1308,12 +1487,23 @@ def compare_and_log(
                 new_hash=file_hash,
                 details="New file detected",
                 status='pending',
-                analysis_json={"diff": snippet, "metadata": metadata, "is_baseline": False},
+                analysis_json={
+                    "diff": snippet,
+                    "metadata": metadata,
+                    "is_baseline": False,
+                    "registry": registry,
+                },
             ))
 
         for path, record in deleted_candidates:
             if path not in consumed_deleted_paths:
                 deleted_files.append(path)
+                registry_entry = mark_registry_inactive(
+                    session,
+                    file_id=record.file_id,
+                    path=path,
+                )
+                registry = build_registry_context(registry_entry)
                 session.add(FileLog(
                     file_id=record.file_id,
                     path=path,
@@ -1322,7 +1512,12 @@ def compare_and_log(
                     new_hash=None,
                     details="File removed from disk",
                     status='pending',
-                    analysis_json={"diff": "File deleted", "metadata": None, "is_baseline": False},
+                    analysis_json={
+                        "diff": "File deleted",
+                        "metadata": None,
+                        "is_baseline": False,
+                        "registry": registry,
+                    },
                 ))
                 if record.file_id is not None:
                     mark_identity_inactive(session.get(FileIdentity, record.file_id))
@@ -1353,7 +1548,7 @@ def _read_snippet(file_path: str, max_chars: int = 5000) -> str:
             chunk = f.read(min(1024, max_chars))
             if b'\x00' in chunk:
                 return "Binary/Unreadable"
-        
+
         with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
             return f.read(max_chars)
     except Exception:

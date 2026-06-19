@@ -1,5 +1,5 @@
 """
-gemini_client.py — REST-only Gemini API client used as fallback for Ollama.
+gemini_client.py  -  REST-only Gemini API client used as fallback for Ollama.
 
 Kept dependency-free (plain `requests`) so the project doesn't have to pull
 the full google-genai SDK. Mirrors the JSON contract that llm_analyzer
@@ -7,7 +7,7 @@ expects so the orchestrator can hand the result straight to the same
 post-processing path used for Ollama responses.
 
 Returns None on any failure (no API key, HTTP error, invalid JSON,
-network problem) — the caller is responsible for falling back further.
+network problem)  -  the caller is responsible for falling back further.
 """
 from __future__ import annotations
 

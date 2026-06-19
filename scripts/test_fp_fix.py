@@ -28,7 +28,7 @@ if __name__ == "__main__":
     print("=== Testing Binary File Fake ===")
     binary_content = "Binary/Unreadable"
     bin_path = os.path.abspath("test_binary.png")
-    
+
     # We simulate what scanner/watcher would give us: "Binary/Unreadable"
     session = SessionLocal()
     # Clean previous test
@@ -37,11 +37,11 @@ if __name__ == "__main__":
     session.close()
 
     create_mock_log(bin_path, binary_content)
-    
+
     print("Running process_pending_analysis...")
     processed = process_pending_analysis()
     print(f"Processed logs: {processed}")
-    
+
     session = SessionLocal()
     bin_log = session.query(FileLog).filter_by(path=bin_path).first()
     print("Binary file risk score:", bin_log.risk_score)
@@ -55,9 +55,9 @@ if __name__ == "__main__":
     if not os.path.exists(r"C:\Windows\Temp"):
         # Fallback to linux tier 4 for cross-platform testing
         fp_path = os.path.abspath(r"/tmp/test_heuristic.txt")
-        
+
     create_mock_log(fp_path, fp_content)
-    
+
     print("Running process_pending_analysis...")
     processed = process_pending_analysis()
     print(f"Processed logs: {processed}")

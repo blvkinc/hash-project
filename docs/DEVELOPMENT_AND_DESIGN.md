@@ -13,6 +13,8 @@ The system is designed for a single-host deployment. It uses Python, FastAPI, SQ
 - Keep large scans practical by avoiding unnecessary analysis and by using fast hash-first capture.
 - Provide a user-friendly interface for scanning, monitoring, reviewing timelines, and receiving notifications.
 
+For dissertation writing, the fuller chronological development narrative is maintained in `docs/DISSERTATION_DEVELOPMENT_LOG.md`. This file remains the compact architecture and design reference, while the dissertation log records the implementation history, tradeoffs, observed performance findings, and evaluation plan.
+
 ## 2. Current System Capabilities
 
 The current implementation supports:
@@ -29,6 +31,13 @@ The current implementation supports:
 - Background LLM/heuristic analysis.
 - Analysis caching to avoid duplicate work.
 - Backlog protection and low-value analysis demotion.
+- Persistent file registry that classifies files by identity, role, tier, and expected change sources.
+- Real MemPalace integration as a derived memory layer seeded from SQL baseline records.
+- Embedded MemPalace agent core with deterministic content inspection and optional typed LLM reasoning.
+- Agent investigation reports for critical/high events, including file state, trusted-change correlation, related memory, content findings, and Windows signature checks where relevant.
+- Queue-limited agent investigation so backlog pressure cannot turn baseline processing into an agent bottleneck.
+- Trusted-change correlation for package managers, installers, Windows Update, deployments, approved changes, and maintenance windows.
+- Multi-strategy MemPalace retrieval by exact path, path history, role/tier, previous verdict, and content indicators.
 - Notification dispatching through desktop alerts, email configuration, batch digests, escalation, and in-app alert history.
 - A dashboard with scan controls, progress metrics, severity filters, collapsible file tree navigation, timeline detail, and an alert center.
 
@@ -151,6 +160,20 @@ Observed development benchmarks showed that:
 - Worker tuning improved throughput substantially, but too many workers could reduce throughput.
 - A target of sustained 1 GB/s depends heavily on storage hardware, file sizes, cache state, and Windows I/O behavior.
 
+### 3.9 File Registry and MemPalace Agent Layer
+
+The newest architecture adds an agentic context layer on top of the fast SQL baseline:
+
+- `core/services/file_registry.py` classifies files by identity rather than content alone.
+- Registry entries store tier, semantic role, asset type, expected change sources, last known good hash, active state, and path history.
+- `core/services/mempalace_baseline_builder.py` seeds the real MemPalace package from SQL registry rows after scans/watch initialization.
+- `core/services/mempalace_bridge.py` writes important file-intelligence memories and retrieves related memories before agent reasoning.
+- `core/services/mempalace_agent.py` is the embedded local-first agent core with optional PydanticAI/Ollama typed output.
+- `core/services/agent_investigator.py` performs bounded tool-style investigation for high-risk events.
+- `core/services/trusted_change.py` correlates file events with trusted operational sources before notification.
+
+The design boundary is explicit: SQL remains the operational source of truth. MemPalace is a derived long-term context layer. The system still handles fast triage and logging, while the agent contributes meaningful context and user-facing alert narrative for important events.
+
 ## 4. Current Architecture
 
 ```mermaid
@@ -164,12 +187,22 @@ flowchart TD
     Watcher --> DB
     SystemMonitor --> Scanner
 
+    DB --> Registry["File Registry"]
+    Registry --> MemoryBuilder["MemPalace Baseline Builder"]
+    MemoryBuilder --> MemPalace["MemPalace Memory"]
+
     DB --> Background["Background Analysis Loop"]
     Background --> Tiering["Tier Prefilter"]
     Tiering --> Heuristic["Heuristic Engine"]
     Tiering --> LLM["Ollama / Gemini LLM"]
-    Heuristic --> Notify["Notification Dispatcher"]
-    LLM --> Notify
+    Tiering --> Registry
+    Registry --> Agent["MemPalace Agent Core"]
+    MemPalace --> Agent
+    Agent --> Investigator["Agent Investigation"]
+    Investigator --> Trust["Trusted Change Correlation"]
+    Heuristic --> Agent
+    LLM --> Agent
+    Agent --> Notify["Notification Dispatcher"]
     Notify --> Desktop["Desktop Notification"]
     Notify --> Email["Email"]
     Notify --> History["Notification History"]
@@ -306,6 +339,85 @@ Tiers guide alerting behavior:
 - Tier 3: general application/user data.
 - Tier 4: low-value temp/cache/log churn.
 
+### 5.10 `core/services/file_registry.py`
+
+Persistent semantic registry for monitored files. It records what a file is to the operating system or application:
+
+- tier and tier label,
+- semantic role,
+- asset type and file category,
+- expected change sources,
+- last known good hash,
+- current fast/security hashes,
+- active/inactive state,
+- path history across renames.
+
+This prevents content-only false negatives. For example, replacing a critical binary with an empty file should still be high risk because the registry knows the file identity is critical.
+
+### 5.11 `core/services/mempalace_bridge.py`
+
+Bridge to the real `mempalace` package. It handles:
+
+- runtime availability/status checks,
+- event memory writes,
+- baseline identity memory writes,
+- multi-strategy related-memory retrieval,
+- fallback lexical search when supported,
+- normalization of MemPalace search results into JSON-safe hit payloads.
+
+Current retrieval strategies:
+
+- `exact_path`: current path, filename, role, tier, and event type.
+- `path_history`: old/new paths from registry history.
+- `role_tier`: same semantic role, tier, asset type, and expected source family.
+- `previous_verdict`: prior threat type, risk score, priority, and classification.
+- `content_indicators`: known content indicators such as reverse shell, keylogging, Telegram exfiltration, PowerShell, SSH, sudo, and systemd terms.
+
+The bridge deduplicates hits and annotates each memory with `retrieval_strategy`, `retrieval_strategies`, `retrieval_room`, and `retrieval_query` so the UI can show why memory was retrieved.
+
+### 5.12 `core/services/mempalace_agent.py`
+
+Embedded local-first file-intelligence agent. It:
+
+- receives registry context, content payload, previous snippets, change summaries, MemPalace memory status, and related memories,
+- inspects captured content with agent-native threat patterns,
+- optionally calls PydanticAI/Ollama for typed LLM reasoning,
+- reconciles system analysis with agent identity/content reasoning,
+- emits `mem_palace` evidence fields in the analysis JSON.
+
+The agent is not a separate service. It runs inside the same FastAPI/background-analysis process.
+
+### 5.13 `core/services/agent_investigator.py`
+
+Bounded investigation layer for critical/high or policy-selected events. It records the tools/checks it ran:
+
+- current file state,
+- trusted-change correlation,
+- MemPalace related-memory search,
+- agent content inspection,
+- Windows Authenticode signature inspection for relevant Windows file types.
+
+Its output is stored in `analysis_json["agent_investigation"]` and summarized in `analysis_json["agent_notification"]`.
+
+Performance isolation is part of this layer. The background analysis loop passes the current pending depth and per-batch investigation count into the agent. During backlog mode, non-critical investigations are skipped with a structured reason such as `performance_backlog_guard`. If the per-batch investigation budget is exhausted, non-critical events are skipped with `performance_batch_budget_exhausted`. True critical drivers, such as critical priority, risk score 9+, Tier 1 identity, or agent content score 9+, are still allowed through so the system does not miss the events that need immediate explanation.
+
+### 5.14 `core/services/trusted_change.py`
+
+Trusted-change correlation layer. It distinguishes:
+
+- confirmed trusted source,
+- trusted activity that does not match the file role,
+- no trusted source found.
+
+Supported evidence sources:
+
+- explicit metadata such as `package_manager`, `deployment_id`, `approved_change_id`, and `windows_update`,
+- metadata maintenance windows,
+- configured maintenance windows through `FIM_TRUSTED_MAINTENANCE_WINDOWS`,
+- runtime OS update probes from `core/os_context.py`.
+
+This prevents the agent from treating every critical-path update as equally suspicious while still refusing to silently downgrade an event without supporting evidence.
+
 ## 6. Frontend Design
 
 The frontend is a static dashboard in `web/index.html`, `web/style.css`, and `web/app.js`.
@@ -333,6 +445,8 @@ Key features:
 - Collapsible file tree.
 - Search with matching branch expansion.
 - Timeline with event analysis cards.
+- Timeline rows for registry role, MemPalace context, memory evidence, related memory, agent investigation, trusted-change status, and recommended actions.
+- Expandable UI Investigation Drawer for agent observations, trust evidence, memory retrieval proof, and next actions.
 - Toast notifications.
 - Desktop notification opt-in.
 - Persistent Alert Center.
@@ -413,11 +527,16 @@ The analysis pipeline is staged:
 
 1. Capture the file event.
 2. Apply tier-based prefiltering.
-3. Build content/change context where useful.
-4. Use analysis cache when possible.
-5. Run heuristic or LLM analysis.
-6. Store structured verdict.
-7. Dispatch notifications based on severity.
+3. Attach file-registry identity context.
+4. Build content/change context where useful.
+5. Use analysis cache when possible.
+6. Run heuristic or LLM analysis.
+7. Apply registry severity floors.
+8. Retrieve related MemPalace memories.
+9. Run the embedded MemPalace agent.
+10. Run bounded agent investigation for important events, subject to queue/backlog performance policy.
+11. Store structured verdict and memory.
+12. Dispatch notifications based on severity.
 
 Important design decisions:
 
@@ -426,6 +545,10 @@ Important design decisions:
 - Backlog mode uses heuristic-only processing to drain queues safely.
 - Duplicate content/change contexts can reuse cached analysis.
 - LLM output is not the only source of truth; local heuristics remain available.
+- Registry context can raise severity even when content is empty, binary, or unreadable.
+- MemPalace memory retrieval gives the agent prior identity/event context before notification.
+- Agent investigation is reserved for high-value events to avoid turning the agent into a bottleneck.
+- Agent investigation is budgeted per background-analysis batch and backlog-aware; critical drivers bypass the budget guard while lower-priority candidates are logged with skip reasons.
 
 ## 10. Notification Design
 
@@ -443,6 +566,8 @@ The frontend now gives users:
 - Alert Center with unread count.
 - Recent notification history.
 - Click-through from notification history to file timeline.
+- Agent-authored notification titles/summaries when an investigation ran.
+- Trusted-change and memory-evidence details in the file timeline.
 
 This creates a more industry-standard workflow: alert, triage, review, retain audit trail.
 
@@ -498,6 +623,24 @@ Important environment variables:
 | `OLLAMA_URL` | `http://localhost:11434/api/generate` | Ollama endpoint |
 | `OLLAMA_MODEL` | `gemma4:latest` | Ollama model |
 | `GEMINI_API_KEY` | empty | Enables Gemini fallback |
+| `FIM_MEMPALACE_ENABLED` | `true` | Enables the real MemPalace memory layer |
+| `FIM_MEMPALACE_PATH` | `.mempalace_fim` | Local MemPalace storage path |
+| `FIM_MEMPALACE_BACKEND` | `sqlite_exact` | MemPalace backend |
+| `FIM_MEMPALACE_COLLECTION` | `fim_file_memories` | MemPalace collection name |
+| `FIM_MEMPALACE_SEARCH_LIMIT` | `5` | Related-memory hit limit |
+| `FIM_MEMPALACE_BASELINE_ENABLED` | `true` | Build baseline identity memories after scans |
+| `FIM_MEMPALACE_BASELINE_MAX_ENTRIES` | `5000` | Maximum registry rows to seed per baseline build |
+| `FIM_MEMPALACE_BASELINE_BATCH_SIZE` | `64` | Baseline memory write batch size |
+| `FIM_MEMPALACE_AGENT_MODE` | `auto` | `local`, `auto`, or `llm` MemPalace agent mode |
+| `FIM_MEMPALACE_AGENT_LLM` | `true` | Allows optional typed LLM reasoning |
+| `FIM_AGENT_INVESTIGATION_ENABLED` | `true` | Enables bounded high-risk investigation |
+| `FIM_AGENT_INVESTIGATION_MIN_RISK` | `7` | Risk threshold for investigation |
+| `FIM_AGENT_INVESTIGATION_MAX_PER_BATCH` | `8` | Maximum non-critical investigations per analysis batch |
+| `FIM_AGENT_INVESTIGATION_BACKLOG_THRESHOLD` | `500` | Pending queue depth where investigation backlog guard activates |
+| `FIM_AGENT_INVESTIGATION_BACKLOG_CRITICAL_ONLY` | `true` | During backlog, reserve investigation for critical drivers |
+| `FIM_AGENT_INVESTIGATION_SIGNATURE_CHECK` | `true` | Enables Windows Authenticode checks |
+| `FIM_AGENT_INVESTIGATION_SIGNATURE_TIMEOUT_SECONDS` | `3.0` | Timeout for each Windows Authenticode check |
+| `FIM_TRUSTED_MAINTENANCE_WINDOWS` | empty | JSON or `start..end` maintenance windows |
 
 ## 14. Testing Strategy
 
@@ -518,11 +661,17 @@ The test suite covers:
 - Provider fallback behavior.
 - Tier 4 content override behavior.
 - Platform path tiering.
+- File registry classification and severity floors.
+- MemPalace bridge writes, searches, baseline builder behavior, and multi-strategy retrieval.
+- Agent investigation behavior.
+- Agent investigation budget/backlog performance guards.
+- Trusted-change correlation.
 
 Common validation commands:
 
 ```powershell
 python -m py_compile core\config.py core\hasher.py core\models.py core\database.py core\scanner.py core\background_analysis.py core\api.py
+python -m py_compile core\services\mempalace_bridge.py core\services\mempalace_agent.py core\services\agent_investigator.py core\services\trusted_change.py
 node --check web\app.js
 python -m pytest tests -q
 ```
@@ -539,6 +688,9 @@ Current known limitations:
 - NTFS MFT/USN Journal scanning is not implemented.
 - Pause/cancel scan controls are not implemented in the UI.
 - Existing rows are upgraded by additive migrations, but a full migration/rebuild path would be cleaner for production.
+- MemPalace is a local derived memory layer, not a replacement for SQL state.
+- The agent is embedded and bounded; it does not yet run open-ended process/event-log tools on its own.
+- Trusted-change correlation relies on attached metadata and lightweight OS context probes; deeper package/event-log correlation remains future work.
 
 ## 16. Remaining Roadmap
 
@@ -569,6 +721,10 @@ The most important decisions so far:
 - Keep heuristics as a reliable fallback to LLMs.
 - Treat notifications as a staged workflow, not raw event spam.
 - Make the UI operational and professional rather than decorative.
+- Keep SQL as source of truth and MemPalace as derived contextual memory.
+- Keep agent work bounded and explainable, with visible evidence in the timeline.
+- Protect scan throughput by queue-limiting deep agent investigation and allowing only critical drivers through during backlog pressure.
+- Confirm trusted changes through structured evidence instead of lowering severity based on vague assumptions.
 
 ## 18. Current State
 
@@ -582,6 +738,13 @@ As of this document, the system is a functional local FIM prototype with:
 - in-app alert center,
 - scan metrics,
 - backlog protection,
+- file registry identity context,
+- real MemPalace memory seeding and retrieval,
+- agent investigation for important events,
+- trusted-change correlation,
+- multi-strategy related-memory retrieval,
+- queue-limited deep agent investigation,
+- expandable investigation drawer in the timeline,
 - and a professional dashboard.
 
 The next architectural leap is to stop treating the initial scan as "hash everything before it feels complete." The future direction should be:

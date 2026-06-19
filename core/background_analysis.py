@@ -1,13 +1,8 @@
-﻿"""
-background_analysis.py — Background thread that processes pending FileLog events.
+"""
+Background processing for pending FileLog events.
 
-Implements the multi-stage prioritisation pipeline:
-  Stage A: Tier-based pre-filter (Tier 1 → immediate, Tier 4 → silent log)
-  Stage B: LLM / heuristic analysis for Tier 2-3 (ambiguous middle)
-  Stage C: Notification dispatch via NotificationDispatcher
-
-Fetches logs with status='pending', classifies by tier, optionally sends
-to Ollama for analysis, and dispatches notifications accordingly.
+The worker applies registry context, tier-aware prefiltering, content analysis,
+MemPalace enrichment, and notification dispatch for queued file changes.
 """
 import time
 import os
@@ -28,6 +23,12 @@ from .analysis_cache import (
 from .llm_analyzer import analyze_file_change
 from .platform_paths import get_tier_for_path
 from .notification_dispatcher import NotificationDispatcher
+from .services.registry_analyzer import (
+    analysis_from_registry_signal,
+    apply_registry_floor,
+    prepare_registry_analysis,
+    run_mempalace_context_analysis,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -143,7 +144,10 @@ def _extract_event_context(analysis_json) -> dict:
         return dict(existing)
 
     context = {}
-    for key in ('diff', 'metadata', 'file_category', 'is_baseline', 'reanalyze', 'analysis_deferred'):
+    for key in (
+        'diff', 'metadata', 'file_category', 'is_baseline', 'reanalyze',
+        'analysis_deferred', 'registry', 'registry_signal',
+    ):
         if key in analysis_json:
             context[key] = analysis_json[key]
     return context
@@ -541,23 +545,33 @@ def _attach_event_context(
     return merged
 
 
-def _apply_tier_prefilter(log: FileLog) -> dict | None:
+def _apply_tier_prefilter(log: FileLog, registry_signal: dict | None = None) -> dict | None:
     """
-    Stage A — Static Pre-Filter using file-criticality tiers.
+    Apply static prefiltering using file-criticality tiers.
 
     Returns a pre-built analysis dict for Tier 1 and Tier 4 files,
-    bypassing the LLM entirely. Returns None for Tier 2/3 (send to LLM).
+    bypassing provider calls. Returns None for Tier 2/3 events.
     """
-    tier = get_tier_for_path(log.path)
+    if registry_signal and registry_signal.get("tier") == 1:
+        analysis = analysis_from_registry_signal(registry_signal)
+        if analysis:
+            analysis['prefiltered'] = True
+            return analysis
+
+    tier = (
+        registry_signal.get("tier")
+        if registry_signal and registry_signal.get("tier") is not None
+        else get_tier_for_path(log.path)
+    )
 
     if tier == 4:
-        # LOW tier: temp files, caches, log appends → silent log
+        # Low-tier files are usually temp files, caches, or log appends.
         return {
             'risk_score': 1,
             'priority': 'info',
             'is_malicious': False,
             'reasoning': (
-                f'Tier 4 file (temp/cache/log) — silently logged. '
+                f'Tier 4 file (temp/cache/log); silently logged. '
                 f'Path: {log.path}'
             ),
             'tier': 4,
@@ -568,20 +582,20 @@ def _apply_tier_prefilter(log: FileLog) -> dict | None:
         if _is_baseline_log(log):
             # Baseline initialization should be content-driven to avoid noisy alerts
             return None
-        # CRITICAL tier: system binaries, auth files → immediate alert
+        # Critical files include system binaries, auth files, and startup points.
         return {
             'risk_score': 9,
             'priority': 'critical',
             'is_malicious': False,       # not necessarily malicious, but critical
             'reasoning': (
-                f'Tier 1 critical file changed outside tracked update — '
+                f'Tier 1 critical file changed outside tracked update; '
                 f'immediate alert required. Path: {log.path}'
             ),
             'tier': 1,
             'prefiltered': True,
         }
 
-    # Tier 2, 3, or unclassified → proceed to LLM / heuristic (Stage B)
+    # Tier 2, Tier 3, and unclassified paths need content analysis.
     return None
 
 
@@ -636,6 +650,7 @@ def process_pending_analysis(batch_size: int | None = None):
         pending = sorted(pending, key=_event_priority)[:effective_batch]
 
         processed = 0
+        investigations_used = 0
         for log in pending:
             try:
                 stored = log.analysis_json if isinstance(log.analysis_json, dict) else {}
@@ -651,6 +666,11 @@ def process_pending_analysis(batch_size: int | None = None):
                 event_context['metadata'] = metadata
                 event_context.setdefault('is_baseline', bool(metadata.get('is_baseline')))
                 _ensure_security_hash(session, log, event_context)
+                registry_payload, registry_signal = prepare_registry_analysis(
+                    session, log, event_context
+                )
+                if registry_payload:
+                    metadata["registry"] = registry_payload
 
                 previous_snippet = None
                 contextual_diff = snippet
@@ -674,7 +694,10 @@ def process_pending_analysis(batch_size: int | None = None):
                     metadata=metadata,
                 )
 
-                tier = get_tier_for_path(log.path)
+                tier = (
+                    (registry_payload or {}).get("tier")
+                    or get_tier_for_path(log.path)
+                )
                 if tier in (1, 2) and not _SYSTEM_MONITOR_ENABLED and not _is_under_active_watch(log.path):
                     analysis = {
                         'risk_score': 1,
@@ -698,11 +721,11 @@ def process_pending_analysis(batch_size: int | None = None):
                     processed += 1
                     continue
 
-                # ── Stage A: Tier Pre-Filter ─────────────────
-                prefilter_result = _apply_tier_prefilter(log)
+                # Tier prefilter
+                prefilter_result = _apply_tier_prefilter(log, registry_signal)
 
                 if prefilter_result is not None:
-                    # Tier 1 or Tier 4 — but ALWAYS check the content first
+                    # Tier 1 and Tier 4 still get a content check when readable.
                     # The tier pre-filter is path-based only. If the file
                     # content contains threats, override with full analysis.
                     if _is_readable_snippet(snippet):
@@ -728,21 +751,21 @@ def process_pending_analysis(batch_size: int | None = None):
                                     f"{analysis.get('reasoning', '')}"
                                 )
                             else:
-                                # Content is dangerous - escalate to LLM.
+                                # High content risk should receive provider-backed review.
                                 logger.info(f"Tier {prefilter_result.get('tier')} override! Sending to LLM due to heuristic threat score {heuristic_score}")
-                                
+
                                 analysis = analyze_file_change(
                                     file_path=log.path,
                                     change_type=log.event_type,
                                     diff=contextual_diff,
                                     metadata=metadata,
                                 )
-                                
-                                # Give LLM the benefit of doubt for false positives. If it thinks it's 
+
+                                # Give LLM the benefit of doubt for false positives. If it thinks it's
                                 # benign after thorough review, we accept it.
                                 analysis['tier_override'] = True
                                 analysis['original_tier'] = prefilter_result.get('tier')
-                                
+
                                 logger.warning(
                                     f"Tier {prefilter_result.get('tier')} escalation complete! "
                                     f"Post-LLM analysis for {log.path} -> "
@@ -761,22 +784,22 @@ def process_pending_analysis(batch_size: int | None = None):
                                 f"path-only prefilter. {analysis.get('reasoning', '')}"
                             )
                         else:
-                            # Content is safe — use the tier pre-filter result
+                            # Content is safe; use the tier pre-filter result.
                             analysis = prefilter_result
                             content_desc = _summarize_content(snippet, log.path)
                             if content_desc:
                                 analysis['reasoning'] += f' {content_desc}'
                     else:
-                        # No readable content — use tier result as-is
+                        # No readable content; use tier result as-is.
                         analysis = prefilter_result
 
                     if not analysis.get('tier_override'):
                         logger.info(
                             f"Pre-filtered (Tier {analysis.get('tier', prefilter_result.get('tier'))}): "
-                            f"{log.path} → {analysis['priority']}"
+                            f"{log.path} -> {analysis['priority']}"
                         )
                 else:
-                    # ── Stage B: LLM / Heuristic Analysis ────
+                    # Provider or heuristic analysis
                     cached_analysis = get_cached_analysis(session, cache_meta)
                     if cached_analysis is not None:
                         analysis = cached_analysis
@@ -797,6 +820,25 @@ def process_pending_analysis(batch_size: int | None = None):
                             )
                         store_analysis_cache(session, cache_meta, analysis)
 
+                analysis = apply_registry_floor(analysis, registry_signal)
+                analysis = run_mempalace_context_analysis(
+                    log=log,
+                    event_context=event_context,
+                    content_payload=contextual_diff,
+                    content_analysis=analysis,
+                    registry_signal=registry_signal,
+                    previous_snippet_available=bool(previous_snippet),
+                    change_summary=change_summary,
+                    performance_context={
+                        "pending_depth": pending_total,
+                        "investigations_used": investigations_used,
+                        "max_per_batch": getattr(settings, "agent_investigation_max_per_batch", 8),
+                        "backlog_threshold": getattr(settings, "agent_investigation_backlog_threshold", 500),
+                        "backlog_critical_only": getattr(settings, "agent_investigation_backlog_critical_only", True),
+                    },
+                )
+                if (analysis.get("agent_investigation") or {}).get("ran"):
+                    investigations_used += 1
                 analysis = _attach_event_context(
                     analysis, event_context, contextual_diff, previous_snippet, change_summary
                 )
@@ -810,9 +852,14 @@ def process_pending_analysis(batch_size: int | None = None):
 
                 session.commit()
                 processed += 1
-                logger.info(f"Analyzed {log.path} → priority={log.priority}, risk={log.risk_score}")
+                logger.info(f"Analyzed {log.path} -> priority={log.priority}, risk={log.risk_score}")
 
-                # ── Stage C: Notification Dispatch ───────────
+                # Notification dispatch
+                registry_for_notification = (
+                    analysis.get('registry')
+                    or analysis.get('event_context', {}).get('registry')
+                    or {}
+                )
                 dispatcher.enqueue({
                     'event_id': log.id,
                     'timestamp': log.timestamp.isoformat() if log.timestamp else None,
@@ -829,6 +876,12 @@ def process_pending_analysis(batch_size: int | None = None):
                     'iocs': analysis.get('iocs', []),
                     'change_summary': analysis.get('change_summary', {}),
                     'recommended_actions': analysis.get('recommended_actions', []),
+                    'registry': registry_for_notification,
+                    'mem_palace': analysis.get('mem_palace'),
+                    'agent_notification': analysis.get('agent_notification'),
+                    'agent_investigation': analysis.get('agent_investigation'),
+                    'semantic_role': analysis.get('semantic_role') or registry_for_notification.get('semantic_role'),
+                    'asset_tier': analysis.get('tier') or registry_for_notification.get('tier'),
                 })
 
             except Exception as e:

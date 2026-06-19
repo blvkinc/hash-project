@@ -30,7 +30,7 @@ def _get_hasher(algorithm: str):
 
     Supports anything in hashlib + 'blake3' (optional dep). Falls back
     to sha256 with a single warning if blake3 was requested but the
-    library isn't installed — we never silently corrupt a baseline.
+    library isn't installed  -  we never silently corrupt a baseline.
     """
     algorithm = (algorithm or 'sha256').lower()
 

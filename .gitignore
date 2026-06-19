@@ -9,32 +9,44 @@ __pycache__/
 .coverage
 htmlcov/
 
-# Virtual envs
+# Virtual environments
 .venv/
 venv/
 env/
 
-# Database (runtime artefact — should not be committed)
+# Runtime database files
 *.db
 *.db-journal
+*.db-shm
 *.db-wal
+*.sqlite
+*.sqlite3
 file_monitor.db
 
-# Editors / IDE
+# Editors and IDEs
 .vscode/
 .idea/
 .claude/
 *.swp
 *.swo
 
-# OS
+# Operating system files
 .DS_Store
 Thumbs.db
 
-# Build / dist
+# Build output
 build/
 dist/
 *.egg
 
 # Logs
 *.log
+
+# Local environment
+.env
+.env.*
+!.env.example
+
+# Local MemPalace runtime store and external inspection clones
+.mempalace_fim/
+.external/

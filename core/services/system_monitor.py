@@ -1,8 +1,8 @@
 """
-system_monitor.py — helpers for the OS-wide "monitor recommended paths" feature.
+Helpers for OS-wide recommended-path monitoring.
 
-Collects Tier 1-2 filesystem + registry targets from platform_paths and
-provides handlers used by the FastAPI routes in core.api.
+The module collects Tier 1 and Tier 2 filesystem and registry targets, then
+feeds them through the normal scan and analysis pipeline.
 """
 import logging
 import os
@@ -17,7 +17,6 @@ from core.scanner import compare_and_log, scan_and_baseline
 logger = logging.getLogger(__name__)
 
 
-# ─── Path classification ────────────────────────────────────
 
 def is_filesystem_monitor_path(path: str) -> bool:
     """Skip registry-style pseudo paths; keep real filesystem locations only."""
@@ -86,7 +85,6 @@ def collect_system_registry_paths() -> List[str]:
     return deduped
 
 
-# ─── Background work ───────────────────────────────────────
 
 def scan_paths_for_baseline(paths: List[str]) -> None:
     """Background baseline + reconciliation scan for multiple paths."""
@@ -103,7 +101,6 @@ def scan_paths_for_baseline(paths: List[str]) -> None:
             logger.warning(f"System monitor scan failed for {path}: {exc}")
 
 
-# ─── Registry event handler ────────────────────────────────
 
 def handle_registry_change(
     path: str,

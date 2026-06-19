@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>IntegrityGuard - File Integrity Monitor</title>
     <meta name="description" content="Real-time file integrity monitoring and change analysis">
-    <link rel="stylesheet" href="style.css?v=tree-alerts-20260607">
+    <link rel="stylesheet" href="style.css?v=analysis-cards-20260619b">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
@@ -39,6 +39,11 @@
                 </span>
             </div>
             <div class="nav-status">
+                <button class="agent-panel-button" id="agentPanelBtn" type="button" aria-expanded="false"
+                    aria-controls="agentPanel" onclick="toggleAgentPanel()">
+                    <span>Agent</span>
+                    <span id="agentPanelState">Idle</span>
+                </button>
                 <div class="hash-pill" id="hashAlgorithm">Hash --</div>
                 <div class="watcher-pill" id="watcherStatus">
                     <span class="watcher-dot"></span>
@@ -271,7 +276,84 @@
         </div>
     </aside>
 
-    <script src="app.js?v=tree-alerts-20260607"></script>
+    <div class="agent-panel-backdrop" id="agentPanelBackdrop" hidden onclick="toggleAgentPanel(false)"></div>
+    <aside class="agent-panel" id="agentPanel" role="dialog" aria-modal="true" aria-labelledby="agentPanelTitle" hidden>
+        <div class="agent-panel-header">
+            <div class="agent-panel-heading">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                    stroke-width="2">
+                    <path d="M12 2v4" />
+                    <path d="M12 18v4" />
+                    <path d="M4.93 4.93l2.83 2.83" />
+                    <path d="M16.24 16.24l2.83 2.83" />
+                    <path d="M2 12h4" />
+                    <path d="M18 12h4" />
+                    <path d="M4.93 19.07l2.83-2.83" />
+                    <path d="M16.24 7.76l2.83-2.83" />
+                    <circle cx="12" cy="12" r="3" />
+                </svg>
+                <div>
+                    <h2 id="agentPanelTitle">Agent View</h2>
+                    <p>MemPalace activity and investigation state</p>
+                </div>
+            </div>
+            <button type="button" class="agent-panel-close" id="agentPanelClose" onclick="toggleAgentPanel(false)">Close</button>
+        </div>
+        <div class="agent-panel-toolbar">
+            <span class="agent-state-pill state-idle" id="agentStatePill">Idle</span>
+            <button type="button" class="agent-refresh-button" onclick="fetchAgentActivity()">Refresh</button>
+        </div>
+        <div class="agent-panel-body">
+            <section class="agent-status-panel" aria-label="Agent status">
+                <div class="agent-panel-title">Status</div>
+                <div class="agent-current-summary" id="agentCurrentSummary">Waiting for agent activity</div>
+                <div class="agent-kv">
+                    <span>Mode</span>
+                    <strong id="agentModeValue">--</strong>
+                </div>
+                <div class="agent-kv">
+                    <span>Memory</span>
+                    <strong id="agentMemoryValue">--</strong>
+                </div>
+                <div class="agent-kv">
+                    <span>Queue</span>
+                    <strong id="agentQueueValue">0 pending</strong>
+                </div>
+            </section>
+            <section class="agent-policy-panel" aria-label="Agent investigation policy">
+                <div class="agent-panel-title">Investigation Policy</div>
+                <div class="agent-policy-grid">
+                    <span>
+                        <b id="agentPolicyRisk">7+</b>
+                        <small>Min risk</small>
+                    </span>
+                    <span>
+                        <b id="agentPolicyBatch">8</b>
+                        <small>Batch cap</small>
+                    </span>
+                    <span>
+                        <b id="agentPolicyBacklog">500</b>
+                        <small>Backlog guard</small>
+                    </span>
+                </div>
+                <div class="agent-last-run" id="agentLastRun">No recent investigation</div>
+            </section>
+            <section class="agent-activity-panel" aria-label="Recent agent activity">
+                <div class="agent-activity-head">
+                    <div>
+                        <div class="agent-panel-title">Recent Activity</div>
+                        <div class="agent-activity-subtitle" id="agentActivitySubtitle">No events yet</div>
+                    </div>
+                    <span class="agent-activity-count" id="agentActivityCount">0</span>
+                </div>
+                <div class="agent-activity-list" id="agentActivityList">
+                    <div class="agent-activity-empty">No agent activity recorded</div>
+                </div>
+            </section>
+        </div>
+    </aside>
+
+    <script src="app.js?v=analysis-cards-20260619b"></script>
 </body>
 
 </html>

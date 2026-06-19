@@ -1,5 +1,5 @@
 """
-os_context.py — OS detection and system event context for LLM analysis.
+os_context.py  -  OS detection and system event context for LLM analysis.
 
 Provides context signals that differ by operating system so the
 Ollama model can reason about whether a file change is expected
@@ -26,9 +26,7 @@ logger = logging.getLogger(__name__)
 _RECENCY_WINDOW_HOURS = 4
 
 
-# ═══════════════════════════════════════════════════════════
 #  System Update Detection
-# ═══════════════════════════════════════════════════════════
 
 def _file_modified_recently(path: str, hours: int = _RECENCY_WINDOW_HOURS) -> bool:
     """Check if a file was modified within the last N hours."""
@@ -152,9 +150,7 @@ def get_recent_system_updates(target_os: Optional[str] = None) -> Dict[str, Any]
     return {'recent_updates': False, 'package_manager': None, 'details': []}
 
 
-# ═══════════════════════════════════════════════════════════
 #  LLM Context Builder
-# ═══════════════════════════════════════════════════════════
 
 def get_os_info() -> Dict[str, str]:
     """Get detailed OS information for the LLM prompt."""
@@ -196,10 +192,10 @@ def get_context_for_llm(
 
     tier = get_tier_for_path(file_path, target_os=os_name)
     tier_labels = {
-        1: 'CRITICAL — should rarely change outside tracked updates',
-        2: 'HIGH — prompt alert recommended',
-        3: 'MEDIUM — batched digest appropriate',
-        4: 'LOW — silent logging sufficient',
+        1: 'CRITICAL  -  should rarely change outside tracked updates',
+        2: 'HIGH  -  prompt alert recommended',
+        3: 'MEDIUM  -  batched digest appropriate',
+        4: 'LOW  -  silent logging sufficient',
     }
 
     update_ctx = get_recent_system_updates(target_os=os_name)
@@ -208,7 +204,7 @@ def get_context_for_llm(
         'os_info': get_os_info(),
         'file_category': get_file_category(file_path, target_os=os_name),
         'monitoring_tier': tier,
-        'tier_label': tier_labels.get(tier, 'UNCLASSIFIED — not in default monitoring set'),
+        'tier_label': tier_labels.get(tier, 'UNCLASSIFIED  -  not in default monitoring set'),
         'recent_updates': update_ctx['recent_updates'],
         'update_details': update_ctx['details'],
     }
@@ -223,11 +219,11 @@ def format_context_for_prompt(context: Dict[str, Any]) -> str:
     lines = [
         f"Operating System: {os_info.get('os_name', 'Unknown')} {os_info.get('os_release', '')} ({os_info.get('architecture', '')})",
         f"File Category: {context.get('file_category', 'unknown')}",
-        f"Monitoring Tier: {context.get('monitoring_tier', 'N/A')} — {context.get('tier_label', 'unclassified')}",
+        f"Monitoring Tier: {context.get('monitoring_tier', 'N/A')}  -  {context.get('tier_label', 'unclassified')}",
     ]
 
     if context.get('recent_updates'):
-        lines.append(f"Recent System Updates: YES — {'; '.join(context.get('update_details', []))}")
+        lines.append(f"Recent System Updates: YES  -  {'; '.join(context.get('update_details', []))}")
     else:
         lines.append("Recent System Updates: None detected in the last few hours")
 

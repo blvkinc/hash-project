@@ -1,5 +1,5 @@
 """
-logging_config.py — opt-in JSON logging for the evaluation phase.
+logging_config.py  -  opt-in JSON logging for the evaluation phase.
 
 Default behaviour is unchanged (human-readable text). Set FIM_LOG_JSON=1
 to emit one JSON object per log line, suitable for `jq`, ElasticSearch,
@@ -21,7 +21,7 @@ from typing import Any, Dict
 _DEFAULT_LEVEL = os.environ.get("FIM_LOG_LEVEL", "INFO").upper()
 _TEXT_FORMAT = '%(asctime)s [%(name)s] %(levelname)s: %(message)s'
 
-# Reserved attributes on logging.LogRecord — we don't want these spilling
+# Reserved attributes on logging.LogRecord  -  we don't want these spilling
 # into the structured payload as "extra fields".
 _RESERVED_RECORD_ATTRS = {
     'name', 'msg', 'args', 'levelname', 'levelno', 'pathname', 'filename',

@@ -50,6 +50,41 @@ class FileRecord(Base):
         return f"<FileRecord(path='{self.path}', hash='{self.hash[:8]}...')>"
 
 
+class FileRegistryEntry(Base):
+    """Persistent semantic registry for a monitored file identity."""
+    __tablename__ = 'file_registry_entries'
+
+    id = Column(Integer, primary_key=True)
+    file_id = Column(Integer, nullable=True, unique=True, index=True)
+    path = Column(String, nullable=False, index=True)
+    normalized_path = Column(String, nullable=False, index=True)
+    name = Column(String, nullable=True, index=True)
+    tier = Column(Integer, nullable=True, index=True)
+    tier_label = Column(String, nullable=True, index=True)
+    semantic_role = Column(String, nullable=True, index=True)
+    asset_type = Column(String, nullable=True, index=True)
+    file_category = Column(String, nullable=True, index=True)
+    confidence = Column(String, default='low', index=True)
+    reasoning = Column(String, nullable=True)
+    expected_change_sources = Column(JSON, nullable=True)
+    last_known_good_hash = Column(String, nullable=True, index=True)
+    current_hash = Column(String, nullable=True, index=True)
+    current_fast_hash = Column(String, nullable=True, index=True)
+    current_security_hash = Column(String, nullable=True, index=True)
+    hash_algorithm = Column(String, nullable=True, index=True)
+    security_hash_algorithm = Column(String, nullable=True, index=True)
+    size = Column(Integer, nullable=True)
+    mtime = Column(Float, nullable=True)
+    path_history = Column(JSON, nullable=True)
+    is_active = Column(Boolean, default=True, index=True)
+    first_seen = Column(DateTime, default=datetime.utcnow, index=True)
+    last_seen = Column(DateTime, default=datetime.utcnow, index=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+    def __repr__(self):
+        return f"<FileRegistryEntry(path='{self.path}', tier={self.tier}, role='{self.semantic_role}')>"
+
+
 class DirectoryNode(Base):
     """Directory tree node used for scalable file browsing and grouping."""
     __tablename__ = 'directory_nodes'
@@ -123,7 +158,7 @@ class AnalysisCache(Base):
 
 
 class FileLog(Base):
-    """Event log — one row per detected change."""
+    """Event log  -  one row per detected change."""
     __tablename__ = 'file_logs'
 
     id = Column(Integer, primary_key=True)

@@ -1,19 +1,8 @@
 """
-notification_dispatcher.py — Notification Dispatch Engine (Stage C).
+Notification routing for analyzed file-change events.
 
-Routes analysed file-change events to the appropriate notification channel
-based on their severity / priority:
-
-  - Immediate alert  (severity 8-10 / critical, high):
-        Desktop notification via plyer, optional email via SMTP.
-  - Batched digest    (severity 4-7  / medium):
-        Accumulated and dispatched at configurable intervals.
-  - Silent log        (severity 1-3  / low, info):
-        Already stored in the DB — no further action.
-
-Pattern escalation:
-    If N or more medium-severity events arrive within a short window
-    the batch is escalated to an immediate alert.
+Critical and high-risk events are sent immediately. Medium-risk events are
+batched, and low-risk events remain available in the event history.
 """
 import os
 import time
@@ -114,6 +103,16 @@ def _normalize_event(event: Dict[str, Any]) -> Dict[str, Any]:
     )
     normalized["iocs"] = list(normalized.get("iocs") or [])
     normalized["mitre_attack"] = list(normalized.get("mitre_attack") or [])
+    agent_notification = normalized.get("agent_notification")
+    normalized["agent_notification"] = (
+        dict(agent_notification) if isinstance(agent_notification, dict) else {}
+    )
+    agent_investigation = normalized.get("agent_investigation")
+    normalized["agent_investigation"] = (
+        dict(agent_investigation) if isinstance(agent_investigation, dict) else {}
+    )
+    if normalized["agent_notification"].get("summary") and not normalized.get("reasoning"):
+        normalized["reasoning"] = normalized["agent_notification"]["summary"]
     normalized["recommended_actions"] = list(
         normalized.get("recommended_actions") or _default_actions(normalized)
     )
@@ -137,6 +136,20 @@ def _format_incident_body(event: Dict[str, Any]) -> str:
             change_text = "No previous snippet available for diff comparison"
     else:
         change_text = str(change_summary or "Not provided")
+    agent_notification = event.get("agent_notification") or {}
+    agent_investigation = event.get("agent_investigation") or {}
+    agent_section = ""
+    if agent_notification or agent_investigation.get("ran"):
+        trusted_change = agent_investigation.get("trusted_change") or agent_notification.get("trusted_change") or "unknown"
+        tools = ", ".join(agent_investigation.get("tools_used") or []) or "not recorded"
+        agent_section = (
+            "Agent Investigation\n"
+            "-------------------\n"
+            f"Title: {agent_notification.get('title') or 'Not provided'}\n"
+            f"Summary: {agent_notification.get('summary') or 'Not provided'}\n"
+            f"Trusted Change: {trusted_change}\n"
+            f"Tools: {tools}\n\n"
+        )
 
     return (
         "File Integrity Alert\n"
@@ -157,6 +170,7 @@ def _format_incident_body(event: Dict[str, Any]) -> str:
         "Analysis\n"
         "--------\n"
         f"{event.get('reasoning') or 'No reasoning provided.'}\n\n"
+        f"{agent_section}"
         "Recommended Actions\n"
         "-------------------\n"
         f"{action_lines or '- Review the event in the dashboard.'}\n"
@@ -192,19 +206,17 @@ def _format_digest_body(events: List[Dict[str, Any]], escalated: bool) -> str:
     return "\n".join(lines)
 
 
-# ═══════════════════════════════════════════════════════════
-#  Configuration (overridable via environment or API)
-# ═══════════════════════════════════════════════════════════
+# Configuration
 
 class NotificationConfig:
-    """Runtime notification settings — can be mutated via API."""
+    """Runtime notification settings that can be updated through the API."""
 
     def __init__(self):
-        # ── Desktop notifications ──────────────────────────
-        self.desktop_enabled: bool = True
+        # Desktop notifications
+        self.desktop_enabled: bool = settings.desktop_notifications_enabled
 
-        # ── Email notifications (initial values from core.config.settings) ──
-        self.email_enabled: bool = False
+        # Email notifications
+        self.email_enabled: bool = settings.email_enabled
         self.smtp_host: str = settings.smtp_host
         self.smtp_port: int = settings.smtp_port
         self.smtp_user: str = settings.smtp_user
@@ -212,12 +224,12 @@ class NotificationConfig:
         self.email_from: str = settings.email_from
         self.email_to: str = settings.email_to
 
-        # ── Batching ───────────────────────────────────────
+        # Batching
         self.batch_interval_seconds: int = settings.batch_interval_seconds
 
-        # ── Escalation ─────────────────────────────────────
-        self.escalation_threshold: int = 3          # N medium events …
-        self.escalation_window_seconds: int = 300   # … within this window
+        # Escalation
+        self.escalation_threshold: int = 3          # N medium events ...
+        self.escalation_window_seconds: int = 300   # ... within this window
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -245,9 +257,7 @@ class NotificationConfig:
                 setattr(self, key, data[key])
 
 
-# ═══════════════════════════════════════════════════════════
 #  Desktop Notification Helper
-# ═══════════════════════════════════════════════════════════
 
 def _send_desktop_notification(title: str, message: str) -> bool:
     """Send a cross-platform desktop notification via plyer."""
@@ -262,16 +272,14 @@ def _send_desktop_notification(title: str, message: str) -> bool:
         logger.info(f"Desktop notification sent: {title}")
         return True
     except ImportError:
-        logger.warning("plyer not installed — desktop notifications unavailable.")
+        logger.warning("plyer not installed  -  desktop notifications unavailable.")
         return False
     except Exception as e:
         logger.error(f"Desktop notification failed: {e}")
         return False
 
 
-# ═══════════════════════════════════════════════════════════
 #  Email Notification Helper
-# ═══════════════════════════════════════════════════════════
 
 def _send_email_notification(
     subject: str,
@@ -282,7 +290,7 @@ def _send_email_notification(
     if not config.email_enabled:
         return False
     if not config.smtp_host or not config.email_to:
-        logger.warning("Email not configured — skipping email notification.")
+        logger.warning("Email not configured  -  skipping email notification.")
         return False
 
     try:
@@ -307,9 +315,7 @@ def _send_email_notification(
         return False
 
 
-# ═══════════════════════════════════════════════════════════
 #  Notification Dispatcher
-# ═══════════════════════════════════════════════════════════
 
 class NotificationDispatcher:
     """
@@ -326,21 +332,19 @@ class NotificationDispatcher:
     def __init__(self, config: Optional[NotificationConfig] = None):
         self.config = config or NotificationConfig()
 
-        # ── Batch queue for medium-severity events ─────────
+        # Batch queue for medium-severity events
         self._batch_queue: List[Dict[str, Any]] = []
         self._batch_lock = threading.Lock()
         self._last_batch_dispatch = time.time()
 
-        # ── Recent medium events for escalation detection ──
+        # Recent medium events for escalation detection
         self._recent_medium: Deque[float] = deque()
 
-        # ── Dispatch history (ring buffer of last 200) ─────
+        # Dispatch history
         self._history: Deque[Dict[str, Any]] = deque(maxlen=200)
         self._history_lock = threading.Lock()
 
-    # ──────────────────────────────────────────────────────
-    #  Public API
-    # ──────────────────────────────────────────────────────
+    # Public API
 
     def enqueue(self, event: Dict[str, Any]):
         """
@@ -360,7 +364,7 @@ class NotificationDispatcher:
             self._handle_batched(event)
 
         else:
-            # low / info → silent log, nothing to do
+            # Low and info events are already recorded in the database.
             self._record_history(event, "silent_log")
 
     def get_config(self) -> Dict[str, Any]:
@@ -374,9 +378,7 @@ class NotificationDispatcher:
             items = list(self._history)
         return items[-limit:]
 
-    # ──────────────────────────────────────────────────────
-    #  Immediate Alerts
-    # ──────────────────────────────────────────────────────
+    # Immediate alerts
 
     def _handle_immediate(self, event: Dict[str, Any]):
         """Dispatch an immediate desktop + email alert."""
@@ -393,8 +395,9 @@ class NotificationDispatcher:
         )
         severity = event.get("severity", _severity_label(priority, risk))
         classification = event.get("threat_classification") or "File integrity event"
-        title = f"{severity} File Integrity Alert"
-        desktop_body = (
+        agent_notification = event.get("agent_notification") or {}
+        title = agent_notification.get("title") or f"{severity} File Integrity Alert"
+        desktop_body = agent_notification.get("summary") or (
             f"{event.get('event_type', 'changed').upper()} {os.path.basename(path)} | "
             f"Risk {risk}/10 | {classification}"
         )
@@ -416,9 +419,7 @@ class NotificationDispatcher:
         self._record_history(event, "immediate")
         logger.info(f"Immediate alert dispatched: {path} ({priority})")
 
-    # ──────────────────────────────────────────────────────
-    #  Batched Digests
-    # ──────────────────────────────────────────────────────
+    # Batched digests
 
     def _handle_batched(self, event: Dict[str, Any]):
         """Add event to the batch queue, check for escalation."""
@@ -465,7 +466,7 @@ class NotificationDispatcher:
             reason = ev.get("reasoning", "")
             lines.append(f"  {i}. [{risk}/10] {path}")
             if reason:
-                lines.append(f"     → {reason}")
+                lines.append(f"     -> {reason}")
 
         body = _format_digest_body(events, escalated)
         title = "SEV-2 File Integrity Escalation" if escalated else "File Integrity Digest"
@@ -486,9 +487,7 @@ class NotificationDispatcher:
 
         logger.info(f"Batch digest dispatched ({len(events)} events, escalated={escalated})")
 
-    # ──────────────────────────────────────────────────────
     #  Dispatch History
-    # ──────────────────────────────────────────────────────
 
     def _record_history(self, event: Dict[str, Any], dispatch_type: str):
         entry = {
@@ -510,13 +509,17 @@ class NotificationDispatcher:
             "change_summary": event.get("change_summary", {}),
             "recommended_actions": event.get("recommended_actions", []),
             "reasoning": event.get("reasoning", ""),
+            "registry": event.get("registry", {}),
+            "mem_palace": event.get("mem_palace", {}),
+            "agent_notification": event.get("agent_notification", {}),
+            "agent_investigation": event.get("agent_investigation", {}),
+            "semantic_role": event.get("semantic_role", ""),
+            "asset_tier": event.get("asset_tier"),
         }
         with self._history_lock:
             self._history.append(entry)
 
-    # ──────────────────────────────────────────────────────
     #  Background Loop
-    # ──────────────────────────────────────────────────────
 
     def dispatch_loop(self, interval: float = 10.0):
         """

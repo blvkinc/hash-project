@@ -1,5 +1,5 @@
 """
-test_api_integration.py — end-to-end FastAPI integration tests.
+test_api_integration.py  -  end-to-end FastAPI integration tests.
 
 Covers the regression class the Phase 7 investigation surfaced:
 a baseline scan + file modification must produce visible state on the
@@ -87,6 +87,88 @@ def test_scan_creates_file_record_and_log(isolated_app):
     row = next(r for r in rows if r["path"].endswith("alpha.txt"))
     assert row["change_count"] >= 1
     assert row["is_baseline"] is True
+
+
+def test_baseline_exposes_file_registry_context(isolated_app):
+    """Baseline API should expose the persistent file intelligence registry."""
+    ctx = isolated_app
+    f = ctx["workdir"] / "agent.py"
+    f.write_text("print('hello')\n", encoding="utf-8")
+
+    ctx["scanner"].scan_and_baseline(str(ctx["workdir"]))
+
+    rows = ctx["client"].get("/api/baseline").json()
+    row = next(r for r in rows if r["path"].endswith("agent.py"))
+
+    assert row["registry"]["semantic_role"] == "source_code"
+    assert row["registry"]["tier"] == 3
+    assert row["semantic_role"] == "source_code"
+
+
+def test_agent_activity_endpoint_reports_recent_investigation(isolated_app):
+    """Agent View feed should expose investigation state and tool activity."""
+    ctx = isolated_app
+    from core.models import FileLog
+
+    session = ctx["db"].SessionLocal()
+    try:
+        log = FileLog(
+            path=str(ctx["workdir"] / "key.java"),
+            event_type="modified",
+            priority="critical",
+            risk_score=9,
+            status="analyzed",
+            analysis_json={
+                "risk_score": 9,
+                "priority": "critical",
+                "analysis_source": "heuristic+mempalace_agent+agent_investigation",
+                "reasoning": "Agent investigated credential theft indicators.",
+                "registry": {
+                    "tier": 3,
+                    "semantic_role": "source_code",
+                    "asset_type": "source",
+                },
+                "mem_palace": {
+                    "agent_content": {
+                        "inspected": True,
+                        "risk_score": 9,
+                        "summary": "Agent content inspection found keylogging indicators.",
+                    },
+                    "memory_status": {"searched": True, "hits": 2},
+                    "related_memories": [{"id": "prior-keylogger"}],
+                },
+                "agent_notification": {
+                    "title": "SEV-1: source code modified - key.java",
+                    "summary": "Agent investigated a high-risk source change.",
+                },
+                "agent_investigation": {
+                    "ran": True,
+                    "reason": "critical_priority_event",
+                    "trusted_change": "suspicious",
+                    "confidence": "high",
+                    "tools_used": [
+                        "current_file_state",
+                        "trusted_change_context",
+                        "agent_content_inspection",
+                    ],
+                    "notification_title": "SEV-1: source code modified - key.java",
+                    "notification_summary": "Agent investigated a high-risk source change.",
+                },
+            },
+        )
+        session.add(log)
+        session.commit()
+    finally:
+        session.close()
+
+    response = ctx["client"].get("/api/agent/activity?limit=5")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["investigation_enabled"] is True
+    assert payload["recent"][0]["agent"]["state"] == "investigated"
+    assert payload["recent"][0]["agent"]["tools_count"] == 3
+    assert payload["recent"][0]["agent"]["memory_hits"] == 2
+    assert payload["recent"][0]["agent"]["title"].startswith("SEV-1")
 
 
 def test_modification_flips_is_baseline_and_increments_change_count(isolated_app):
@@ -270,7 +352,9 @@ def test_deferred_baseline_analysis_reads_content_after_hash_capture(isolated_ap
     timeline = ctx["client"].get("/api/files/timeline", params={"path": row["path"]}).json()
     event = timeline["events"][0]
     assert event["status"] == "analyzed"
-    assert event["analysis"]["analysis_source"] in {"heuristic", "fallback", "ollama"}
+    assert event["analysis"]["analysis_source"].split("+")[0] in {"heuristic", "fallback", "ollama"}
+    assert event["analysis"]["mem_palace_agent"] is True
+    assert event["analysis"]["mem_palace"]["semantic_role"] == "script"
     assert event["analysis"]["priority"] == "critical"
     assert "Reverse Shell" in event["analysis"]["reasoning"]
 

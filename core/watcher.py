@@ -1,5 +1,5 @@
 """
-watcher.py — Real-time filesystem monitoring using watchdog.
+watcher.py  -  Real-time filesystem monitoring using watchdog.
 
 Watches a directory for file create/modify/delete events,
 re-hashes affected files, and logs changes to the database.
@@ -12,6 +12,7 @@ from datetime import datetime
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler, FileSystemEvent
 from sqlalchemy.orm import Session
+from .config import settings
 from .database import SessionLocal
 from .models import FileIdentity, FileRecord, FileLog
 from .hasher import calculate_file_hash, get_file_metadata
@@ -19,6 +20,11 @@ from .file_identity import (
     attach_identity_to_record,
     find_identity_by_platform_id,
     mark_identity_inactive,
+)
+from .services.file_registry import (
+    mark_registry_inactive,
+    registry_context as build_registry_context,
+    upsert_registry_entry,
 )
 
 logger = logging.getLogger(__name__)
@@ -51,11 +57,34 @@ def _read_snippet(file_path: str, max_chars: int = 5000) -> str:
             chunk = f.read(min(1024, max_chars))
             if b'\x00' in chunk:
                 return "Binary/Unreadable"
-                
+
         with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
             return f.read(max_chars)
     except Exception:
         return "Binary/Unreadable"
+
+
+def _watch_registry_context(
+    session: Session,
+    path: str,
+    metadata: dict | None,
+    file_hash: str | None,
+    file_id: int | None = None,
+    active: bool = True,
+) -> dict | None:
+    entry = upsert_registry_entry(
+        session=session,
+        path=path,
+        metadata=metadata,
+        file_hash=file_hash,
+        fast_hash=file_hash,
+        file_id=file_id,
+        hash_algorithm=settings.hash_algorithm,
+        security_hash_algorithm=settings.security_hash_algorithm,
+        is_baseline=False,
+        active=active,
+    )
+    return build_registry_context(entry)
 
 
 class IntegrityEventHandler(FileSystemEventHandler):
@@ -149,14 +178,30 @@ class IntegrityEventHandler(FileSystemEventHandler):
                 record = FileRecord(
                     path=abs_path,
                     hash=new_hash,
+                    hash_algorithm=settings.hash_algorithm,
+                    fast_hash=new_hash,
+                    security_hash_algorithm=settings.security_hash_algorithm,
                     is_baseline=False,
                     mtime=metadata['mtime'] if metadata else None,
                     size=metadata['size'] if metadata else None,
                 )
                 attach_identity_to_record(
-                    session, record, abs_path, metadata, new_hash, directory_cache
+                    session=session,
+                    record=record,
+                    path=abs_path,
+                    metadata=metadata,
+                    file_hash=new_hash,
+                    fast_hash=new_hash,
+                    directory_cache=directory_cache,
                 )
                 session.add(record)
+                registry = _watch_registry_context(
+                    session=session,
+                    path=abs_path,
+                    metadata=metadata,
+                    file_hash=new_hash,
+                    file_id=record.file_id,
+                )
                 snippet = _read_snippet(abs_path)
                 session.add(FileLog(
                     file_id=record.file_id,
@@ -166,17 +211,36 @@ class IntegrityEventHandler(FileSystemEventHandler):
                     new_hash=new_hash,
                     details="New file detected (real-time)",
                     status='pending',
-                    analysis_json={"diff": snippet, "metadata": metadata, "is_baseline": False},
+                    analysis_json={
+                        "diff": snippet,
+                        "metadata": metadata,
+                        "is_baseline": False,
+                        "registry": registry,
+                    },
                 ))
                 session.commit()
                 logger.info(f"[NEW] {abs_path}")
 
             elif record.hash != new_hash:
-                # Modified file — hash actually changed
+                # Modified file  -  hash actually changed
                 old_hash = record.hash
                 snippet = _read_snippet(abs_path)
                 attach_identity_to_record(
-                    session, record, abs_path, metadata, new_hash, directory_cache
+                    session=session,
+                    record=record,
+                    path=abs_path,
+                    metadata=metadata,
+                    file_hash=new_hash,
+                    fast_hash=new_hash,
+                    security_hash=record.security_hash,
+                    directory_cache=directory_cache,
+                )
+                registry = _watch_registry_context(
+                    session=session,
+                    path=abs_path,
+                    metadata=metadata,
+                    file_hash=new_hash,
+                    file_id=record.file_id,
                 )
 
                 session.add(FileLog(
@@ -185,12 +249,19 @@ class IntegrityEventHandler(FileSystemEventHandler):
                     event_type='modified',
                     old_hash=old_hash,
                     new_hash=new_hash,
-                    details=f"Hash changed: {old_hash[:12]}… → {new_hash[:12]}…",
+                    details=f"Hash changed: {old_hash[:12]}... -> {new_hash[:12]}...",
                     status='pending',
-                    analysis_json={"diff": snippet, "metadata": metadata, "is_baseline": False},
+                    analysis_json={
+                        "diff": snippet,
+                        "metadata": metadata,
+                        "is_baseline": False,
+                        "registry": registry,
+                    },
                 ))
 
                 record.hash = new_hash
+                record.fast_hash = new_hash
+                record.hash_algorithm = settings.hash_algorithm
                 record.last_seen = datetime.utcnow()
                 record.mtime = metadata['mtime'] if metadata else None
                 record.size = metadata['size'] if metadata else None
@@ -219,6 +290,8 @@ class IntegrityEventHandler(FileSystemEventHandler):
             record = session.query(FileRecord).filter_by(path=abs_path).first()
             old_hash = record.hash if record else None
             file_id = record.file_id if record else None
+            registry_entry = mark_registry_inactive(session, file_id=file_id, path=abs_path)
+            registry = build_registry_context(registry_entry)
 
             session.add(FileLog(
                 file_id=file_id,
@@ -228,7 +301,12 @@ class IntegrityEventHandler(FileSystemEventHandler):
                 new_hash=None,
                 details="File removed (real-time)",
                 status='pending',
-                analysis_json={"diff": "File deleted", "metadata": None, "is_baseline": False},
+                analysis_json={
+                    "diff": "File deleted",
+                    "metadata": None,
+                    "is_baseline": False,
+                    "registry": registry,
+                },
             ))
 
             if record:
@@ -357,7 +435,14 @@ class IntegrityEventHandler(FileSystemEventHandler):
     ) -> None:
         """Update path identity and append a rename event."""
         attach_identity_to_record(
-            session, record, new_path, metadata, new_hash, directory_cache
+            session=session,
+            record=record,
+            path=new_path,
+            metadata=metadata,
+            file_hash=new_hash,
+            fast_hash=new_hash,
+            security_hash=record.security_hash,
+            directory_cache=directory_cache,
         )
         session.query(FileLog).filter(FileLog.path == old_path).update(
             {FileLog.path: new_path, FileLog.file_id: record.file_id},
@@ -366,10 +451,19 @@ class IntegrityEventHandler(FileSystemEventHandler):
 
         record.path = new_path
         record.hash = new_hash
+        record.fast_hash = new_hash
+        record.hash_algorithm = settings.hash_algorithm
         record.last_seen = datetime.utcnow()
         record.mtime = metadata['mtime'] if metadata else None
         record.size = metadata['size'] if metadata else None
         record.is_baseline = False
+        registry = _watch_registry_context(
+            session=session,
+            path=new_path,
+            metadata=metadata,
+            file_hash=new_hash,
+            file_id=record.file_id,
+        )
 
         session.add(FileLog(
             file_id=record.file_id,
@@ -385,6 +479,7 @@ class IntegrityEventHandler(FileSystemEventHandler):
                 "is_baseline": False,
                 "previous_path": old_path,
                 "new_path": new_path,
+                "registry": registry,
             },
         ))
 

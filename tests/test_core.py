@@ -1,5 +1,5 @@
 """
-test_core.py — Unit tests for the File Integrity Monitor core modules.
+test_core.py  -  Unit tests for the File Integrity Monitor core modules.
 """
 import os
 import sys

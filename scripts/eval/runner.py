@@ -1,5 +1,5 @@
 """
-runner.py — execute scenarios and print a metrics table.
+runner.py  -  execute scenarios and print a metrics table.
 
 Run as:  python -m scripts.eval.runner
 Or:      python scripts/eval/runner.py

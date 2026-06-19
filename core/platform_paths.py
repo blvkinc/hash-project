@@ -1,15 +1,15 @@
 """
-platform_paths.py — Cross-platform monitoring path definitions.
+platform_paths.py  -  Cross-platform monitoring path definitions.
 
 Provides tiered default monitoring paths for Linux, Windows, and macOS,
 based on research from Tripwire, OSSEC, Wazuh, Microsoft Defender FIM,
 and osquery best practices.
 
 Tiers:
-  1 — CRITICAL: Immediate notification (system binaries, auth, boot chain)
-  2 — HIGH:     Prompt alert within minutes (drivers, tasks, libraries)
-  3 — MEDIUM:   Batched digest hourly/daily (package DBs, SSH keys, profiles)
-  4 — LOW:      Silent log, review on demand (temps, caches, log growth)
+  1  -  CRITICAL: Immediate notification (system binaries, auth, boot chain)
+  2  -  HIGH:     Prompt alert within minutes (drivers, tasks, libraries)
+  3  -  MEDIUM:   Batched digest hourly/daily (package DBs, SSH keys, profiles)
+  4  -  LOW:      Silent log, review on demand (temps, caches, log growth)
 """
 import os
 import platform
@@ -17,9 +17,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
 
-# ═══════════════════════════════════════════════════════════
 #  Data Structures
-# ═══════════════════════════════════════════════════════════
 
 @dataclass
 class MonitorTarget:
@@ -31,13 +29,11 @@ class MonitorTarget:
     recursive: bool = True
 
 
-# ═══════════════════════════════════════════════════════════
 #  LINUX Monitoring Paths
-# ═══════════════════════════════════════════════════════════
 
 LINUX_PATHS: Dict[int, List[MonitorTarget]] = {
     1: [
-        # System binaries — trojan replacements for login, su, ps, ls
+        # System binaries  -  trojan replacements for login, su, ps, ls
         MonitorTarget('/bin', 'Core system binaries', 'binary'),
         MonitorTarget('/sbin', 'System administration binaries', 'binary'),
         MonitorTarget('/usr/bin', 'User-space binaries', 'binary'),
@@ -74,7 +70,7 @@ LINUX_PATHS: Dict[int, List[MonitorTarget]] = {
         MonitorTarget('/var/lib/pacman', 'Pacman package database', 'data'),
         # Third-party installs
         MonitorTarget('/opt', 'Third-party application installs', 'binary'),
-        # User SSH keys (template — expand per user at runtime)
+        # User SSH keys (template  -  expand per user at runtime)
         MonitorTarget('/home', 'User home directories (SSH keys, profiles)', 'config'),
     ],
     4: [
@@ -87,13 +83,11 @@ LINUX_PATHS: Dict[int, List[MonitorTarget]] = {
 }
 
 
-# ═══════════════════════════════════════════════════════════
 #  WINDOWS Monitoring Paths
-# ═══════════════════════════════════════════════════════════
 
 WINDOWS_PATHS: Dict[int, List[MonitorTarget]] = {
     1: [
-        # Core OS binaries — svchost.exe should ONLY reside in System32
+        # Core OS binaries  -  svchost.exe should ONLY reside in System32
         MonitorTarget(r'C:\Windows\System32', 'Core OS binaries (System32)', 'binary'),
         MonitorTarget(r'C:\Windows\SysWOW64', '32-bit system binaries on 64-bit', 'binary'),
         # SAM, SECURITY, SYSTEM registry hive files
@@ -132,7 +126,7 @@ WINDOWS_PATHS: Dict[int, List[MonitorTarget]] = {
             r'C:\Users\*\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup',
             'User-level startup folder', 'config'
         ),
-        # Prefetch — indicates new executables being run
+        # Prefetch  -  indicates new executables being run
         MonitorTarget(r'C:\Windows\Prefetch', 'Prefetch data (executable history)', 'data'),
         # User-level autorun registry
         MonitorTarget(r'HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Run', 'User-level autorun (registry)', 'registry', is_directory=False),
@@ -146,9 +140,7 @@ WINDOWS_PATHS: Dict[int, List[MonitorTarget]] = {
 }
 
 
-# ═══════════════════════════════════════════════════════════
 #  macOS Monitoring Paths
-# ═══════════════════════════════════════════════════════════
 
 MACOS_PATHS: Dict[int, List[MonitorTarget]] = {
     1: [
@@ -159,7 +151,7 @@ MACOS_PATHS: Dict[int, List[MonitorTarget]] = {
         MonitorTarget('/sbin', 'System admin binaries', 'binary'),
         # Core system frameworks
         MonitorTarget('/System/Library', 'Core system frameworks and libraries', 'library'),
-        # LaunchDaemons — adversaries install daemons for persistence
+        # LaunchDaemons  -  adversaries install daemons for persistence
         MonitorTarget('/Library/LaunchDaemons', 'System-level launch daemons', 'config'),
         MonitorTarget('/System/Library/LaunchDaemons', 'Apple launch daemons', 'config'),
         # Authentication
@@ -196,9 +188,7 @@ MACOS_PATHS: Dict[int, List[MonitorTarget]] = {
 }
 
 
-# ═══════════════════════════════════════════════════════════
-#  Noisy Directories (per-OS) — expected frequent changes
-# ═══════════════════════════════════════════════════════════
+#  Noisy Directories (per-OS)  -  expected frequent changes
 
 NOISY_DIRS: Dict[str, List[str]] = {
     'linux': [
@@ -228,12 +218,10 @@ NOISY_DIRS: Dict[str, List[str]] = {
 }
 
 
-# ═══════════════════════════════════════════════════════════
 #  File Category Classification
-# ═══════════════════════════════════════════════════════════
 
 # Maps path prefixes to categories for contextual LLM prompts.
-# Order matters — more specific prefixes first.
+# Order matters  -  more specific prefixes first.
 
 _CATEGORY_RULES_LINUX = [
     ('/etc/passwd', 'auth'), ('/etc/shadow', 'auth'), ('/etc/sudoers', 'auth'),
@@ -285,9 +273,7 @@ _CATEGORY_RULES = {
 }
 
 
-# ═══════════════════════════════════════════════════════════
 #  Public API
-# ═══════════════════════════════════════════════════════════
 
 def detect_os() -> str:
     """Detect the current operating system. Returns 'linux', 'windows', or 'darwin'."""
@@ -378,14 +364,19 @@ def get_tier_for_path(file_path: str, target_os: Optional[str] = None) -> Option
 
     normalised = file_path.replace('/', os.sep).replace('\\', os.sep).lower()
 
+    matches = []
     for tier_num in sorted(os_paths.keys()):
         for target in os_paths[tier_num]:
             target_path = target.path.replace('/', os.sep).replace('\\', os.sep).lower()
-            # Skip registry keys — they aren't filesystem paths
+            # Skip registry keys  -  they aren't filesystem paths
             if target.category == 'registry':
                 continue
             if normalised.startswith(target_path):
-                return tier_num
+                matches.append((len(target_path), tier_num))
+
+    if matches:
+        matches.sort(key=lambda item: (-item[0], item[1]))
+        return matches[0][1]
 
     return None
 

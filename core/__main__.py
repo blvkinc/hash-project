@@ -1,5 +1,5 @@
 """
-core.__main__ — headless CLI for the Hash Monitor.
+core.__main__  -  headless CLI for the Hash Monitor.
 
 Lets the evaluation harness, cron jobs, and red-team scripts drive the
 pipeline without spinning up the FastAPI server.

@@ -47,6 +47,40 @@ def _ensure_columns():
         if "current_security_hash" not in identity_columns:
             conn.execute(text("ALTER TABLE file_identities ADD COLUMN current_security_hash VARCHAR"))
 
+        registry_columns = _table_columns(conn, "file_registry_entries")
+        registry_column_defs = {
+            "file_id": "INTEGER",
+            "path": "VARCHAR",
+            "normalized_path": "VARCHAR",
+            "name": "VARCHAR",
+            "tier": "INTEGER",
+            "tier_label": "VARCHAR",
+            "semantic_role": "VARCHAR",
+            "asset_type": "VARCHAR",
+            "file_category": "VARCHAR",
+            "confidence": "VARCHAR",
+            "reasoning": "VARCHAR",
+            "expected_change_sources": "JSON",
+            "last_known_good_hash": "VARCHAR",
+            "current_hash": "VARCHAR",
+            "current_fast_hash": "VARCHAR",
+            "current_security_hash": "VARCHAR",
+            "hash_algorithm": "VARCHAR",
+            "security_hash_algorithm": "VARCHAR",
+            "size": "INTEGER",
+            "mtime": "FLOAT",
+            "path_history": "JSON",
+            "is_active": "BOOLEAN",
+            "first_seen": "DATETIME",
+            "last_seen": "DATETIME",
+            "updated_at": "DATETIME",
+        }
+        for column_name, column_type in registry_column_defs.items():
+            if column_name not in registry_columns:
+                conn.execute(text(
+                    f"ALTER TABLE file_registry_entries ADD COLUMN {column_name} {column_type}"
+                ))
+
 
 def _table_columns(conn, table_name: str) -> set[str]:
     rows = conn.execute(text(f"PRAGMA table_info({table_name})")).fetchall()
@@ -91,6 +125,20 @@ def _ensure_indexes():
         "CREATE INDEX IF NOT EXISTS idx_file_records_fast_hash ON file_records(fast_hash)",
         "CREATE INDEX IF NOT EXISTS idx_file_records_security_hash ON file_records(security_hash)",
         "CREATE INDEX IF NOT EXISTS idx_file_records_last_seen ON file_records(last_seen)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_file_registry_entries_file_id ON file_registry_entries(file_id)",
+        "CREATE INDEX IF NOT EXISTS idx_file_registry_entries_path ON file_registry_entries(path)",
+        "CREATE INDEX IF NOT EXISTS idx_file_registry_entries_normalized_path ON file_registry_entries(normalized_path)",
+        "CREATE INDEX IF NOT EXISTS idx_file_registry_entries_tier ON file_registry_entries(tier)",
+        "CREATE INDEX IF NOT EXISTS idx_file_registry_entries_tier_label ON file_registry_entries(tier_label)",
+        "CREATE INDEX IF NOT EXISTS idx_file_registry_entries_semantic_role ON file_registry_entries(semantic_role)",
+        "CREATE INDEX IF NOT EXISTS idx_file_registry_entries_asset_type ON file_registry_entries(asset_type)",
+        "CREATE INDEX IF NOT EXISTS idx_file_registry_entries_file_category ON file_registry_entries(file_category)",
+        "CREATE INDEX IF NOT EXISTS idx_file_registry_entries_confidence ON file_registry_entries(confidence)",
+        "CREATE INDEX IF NOT EXISTS idx_file_registry_entries_current_hash ON file_registry_entries(current_hash)",
+        "CREATE INDEX IF NOT EXISTS idx_file_registry_entries_current_fast_hash ON file_registry_entries(current_fast_hash)",
+        "CREATE INDEX IF NOT EXISTS idx_file_registry_entries_current_security_hash ON file_registry_entries(current_security_hash)",
+        "CREATE INDEX IF NOT EXISTS idx_file_registry_entries_is_active ON file_registry_entries(is_active)",
+        "CREATE INDEX IF NOT EXISTS idx_file_registry_entries_updated_at ON file_registry_entries(updated_at)",
         "CREATE INDEX IF NOT EXISTS idx_file_logs_file_id ON file_logs(file_id)",
         "CREATE INDEX IF NOT EXISTS idx_file_logs_status ON file_logs(status)",
         "CREATE INDEX IF NOT EXISTS idx_file_logs_priority ON file_logs(priority)",

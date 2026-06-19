@@ -1,9 +1,9 @@
-﻿"""
-llm_analyzer.py — File change analysis engine.
+"""
+llm_analyzer.py - File change analysis engine.
 
 Two-tier approach:
-  1. Ollama LLM analysis (when available) — deep contextual reasoning
-  2. Heuristic engine (fallback) — pattern-based content + path analysis
+  1. Ollama LLM analysis (when available) - deep contextual reasoning
+  2. Heuristic engine (fallback) - pattern-based content + path analysis
 
 The heuristic engine scans file content for known threat indicators:
   - Reverse shells, bind shells, C2 callbacks
@@ -32,9 +32,7 @@ def _get_llm_context(file_path: str, change_type: str) -> str:
         return 'OS Context: unavailable'
 
 
-# ═══════════════════════════════════════════════════════════
 #  Threat Signature Database
-# ═══════════════════════════════════════════════════════════
 
 # Each pattern: (compiled_regex, threat_category, severity, description)
 # severity: 10=critical, 7-9=high, 4-6=medium, 2-3=low
@@ -48,7 +46,7 @@ def _p(pattern: str, category: str, severity: int, desc: str):
         category, severity, desc
     ))
 
-# ─── Comprehensive Reverse Shells (revshells.com coverage) ───
+# Reverse shell patterns
 
 # Bash / Sh / Zsh
 _p(r'/dev/tcp/\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/\d+', 'reverse_shell', 10, 'Bash reverse shell via /dev/tcp')
@@ -100,7 +98,7 @@ _p(r'Runtime\.getRuntime\(\)\.exec\([\'"](/bin/bash|cmd\.exe)', 'reverse_shell',
 # General Shell/Metasploit
 _p(r'msfvenom|meterpreter|metasploit', 'reverse_shell', 10, 'Metasploit/meterpreter reference')
 
-# ─── C/C++ & Win32 API Reverse Shells ────────────────────
+# C/C++ & Win32 API Reverse Shells
 _p(r'WSASocket\s*\(.*SOCK_STREAM', 'reverse_shell', 10, 'Win32 WSASocket TCP connection (reverse shell indicator)')
 _p(r'WSAConnect\s*\(', 'reverse_shell', 9, 'Win32 WSAConnect (shell network connection)')
 _p(r'winsock2\.h', 'reverse_shell', 7, 'Winsock2 include (network socket programming)')
@@ -123,7 +121,7 @@ _p(r'ShellExecute\s*\(.*cmd|ShellExecuteEx', 'reverse_shell', 8, 'Win32 ShellExe
 _p(r'WinExec\s*\(', 'reverse_shell', 8, 'Win32 WinExec API call')
 _p(r'system\s*\(\s*"(cmd|/bin/sh|bash|powershell|sh\b)', 'reverse_shell', 9, 'C system() spawning shell')
 
-# ─── Network / C2 Callbacks ────────────────────────────
+# Network / C2 Callbacks
 _p(r'InternetOpen\s*\(|HttpOpenRequest|HttpSendRequest', 'c2_callback', 8, 'WinINet HTTP API (potential C2 callback)')
 _p(r'URLDownloadToFile\s*\(', 'c2_callback', 9, 'URLDownloadToFile (download & execute pattern)')
 _p(r'WinHttpOpen|WinHttpConnect|WinHttpSendRequest', 'c2_callback', 8, 'WinHTTP API calls (potential C2)')
@@ -131,7 +129,7 @@ _p(r'curl_easy_perform|libcurl', 'c2_callback', 6, 'libcurl network request')
 _p(r'recv\s*\(.*send\s*\(|send\s*\(.*recv\s*\(', 'c2_callback', 7, 'Socket send/recv pattern (bidirectional comms)')
 _p(r'\b(cobalt[-_.\s]?strike|command[-_.\s]?and[-_.\s]?control)\b', 'c2_callback', 8, 'C2 terminology detected')
 
-# ─── Process Injection (C/C++) ────────────────────────
+# Process Injection (C/C++)
 _p(r'VirtualAlloc(Ex)?\s*\(.*PAGE_EXECUTE', 'process_injection', 10, 'Executable memory allocation (shellcode injection)')
 _p(r'WriteProcessMemory\s*\(', 'process_injection', 10, 'WriteProcessMemory (process injection)')
 _p(r'CreateRemoteThread\s*\(', 'process_injection', 10, 'CreateRemoteThread (remote code injection)')
@@ -141,18 +139,16 @@ _p(r'QueueUserAPC\s*\(', 'process_injection', 9, 'APC injection technique')
 _p(r'SetThreadContext|NtSetContextThread', 'process_injection', 9, 'Thread context manipulation (injection)')
 _p(r'MapViewOfSection|NtMapViewOfSection', 'process_injection', 8, 'Section mapping (process hollowing)')
 
-# ═══════════════════════════════════════════════════════════
 #  Additional Reverse Shell Languages (revshells.com coverage)
-# ═══════════════════════════════════════════════════════════
 
-# ─── Go / Golang Reverse Shell ───────────────────────────
+# Go / Golang Reverse Shell
 _p(r'net\.Dial\s*\(\s*"tcp"', 'reverse_shell', 9, 'Go TCP dial (reverse shell pattern)')
 _p(r'exec\.Command\s*\(\s*"(/bin/sh|/bin/bash|cmd\.exe|cmd|sh|bash|powershell)"', 'reverse_shell', 10, 'Go exec.Command spawning shell')
 _p(r'os/exec.*net\.Conn', 'reverse_shell', 9, 'Go os/exec + net.Conn (reverse shell combo)')
 _p(r'cmd\.Stdin\s*=\s*conn|cmd\.Stdout\s*=\s*conn|cmd\.Stderr\s*=\s*conn', 'reverse_shell', 10, 'Go cmd I/O redirected to network connection')
 _p(r'syscall\.Dup2.*net\.Dial', 'reverse_shell', 10, 'Go syscall.Dup2 with network dial (reverse shell)')
 
-# ─── Java Reverse Shell ──────────────────────────────────
+# Java Reverse Shell
 _p(r'Runtime\.getRuntime\(\)\.exec\s*\(\s*.*(/bin/sh|/bin/bash|cmd\.exe|cmd)', 'reverse_shell', 10, 'Java Runtime.exec spawning shell')
 _p(r'ProcessBuilder\s*\(\s*.*(/bin/sh|/bin/bash|cmd\.exe|cmd)', 'reverse_shell', 10, 'Java ProcessBuilder spawning shell')
 _p(r'new\s+Socket\s*\(\s*"?\d+\.\d+', 'reverse_shell', 9, 'Java Socket connecting to IP')
@@ -160,7 +156,7 @@ _p(r'java\.net\.Socket\s*\(', 'reverse_shell', 8, 'Java Socket creation')
 _p(r'Process\s+.*=\s*.*Runtime.*exec.*\n.*getInputStream.*getOutputStream', 'reverse_shell', 10, 'Java process I/O for reverse shell')
 _p(r'ServerSocket\s*\(\s*\d+', 'bind_shell', 8, 'Java ServerSocket (bind shell)')
 
-# ─── Node.js Reverse Shell ───────────────────────────────
+# Node.js Reverse Shell
 _p(r'require\s*\(\s*["\']child_process["\']\s*\).*spawn\s*\(\s*.*(/bin/sh|sh|bash|cmd)', 'reverse_shell', 10, 'Node.js child_process.spawn shell')
 _p(r'require\s*\(\s*["\']net["\']\s*\).*\.connect\s*\(\s*\d+', 'reverse_shell', 9, 'Node.js net.connect (reverse shell)')
 _p(r'child_process.*exec\s*\(|child_process.*execSync', 'reverse_shell', 8, 'Node.js child_process exec')
@@ -168,44 +164,44 @@ _p(r'net\.Socket\(\).*\.connect\(\{.*port', 'reverse_shell', 9, 'Node.js Socket 
 _p(r'require\s*\(\s*["\']net["\']\s*\).*\.createServer', 'bind_shell', 8, 'Node.js net.createServer (bind shell)')
 _p(r'(spawn|exec)\s*\(\s*["\']/bin/(ba)?sh["\'].*stdio.*pipe', 'reverse_shell', 10, 'Node.js spawn shell with pipe I/O')
 
-# ─── Lua Reverse Shell ───────────────────────────────────
+# Lua Reverse Shell
 _p(r'socket\.tcp\s*\(\s*\)', 'reverse_shell', 8, 'Lua TCP socket creation')
 _p(r'socket\.connect\s*\(\s*["\']?\d+\.\d+', 'reverse_shell', 9, 'Lua socket connect to IP')
 _p(r'os\.execute\s*\(\s*.*(/bin/sh|bash|cmd|sh)', 'reverse_shell', 9, 'Lua os.execute spawning shell')
 _p(r'io\.popen\s*\(\s*.*(/bin/sh|bash|cmd)', 'reverse_shell', 9, 'Lua io.popen spawning shell')
 _p(r'require\s*\(\s*["\']socket["\']\s*\).*tcp\s*\(\s*\)', 'reverse_shell', 9, 'Lua require socket + TCP')
 
-# ─── Groovy Reverse Shell ────────────────────────────────
+# Groovy Reverse Shell
 _p(r'\.execute\s*\(\s*\)\.text.*(/bin/sh|bash|cmd)', 'reverse_shell', 9, 'Groovy execute shell')
 _p(r'groovy\.lang.*ProcessBuilder|".*".execute\(\)', 'reverse_shell', 8, 'Groovy command execution')
 _p(r'new\s+Socket\s*\(.*\).*getInputStream.*Process', 'reverse_shell', 10, 'Groovy Socket + Process (reverse shell)')
 _p(r'Thread\.start\s*\{.*socket.*process', 'reverse_shell', 9, 'Groovy threaded socket reverse shell')
 
-# ─── Dart Reverse Shell ──────────────────────────────────
+# Dart Reverse Shell
 _p(r'Socket\.connect\s*\(\s*["\']?\d+\.\d+', 'reverse_shell', 9, 'Dart Socket.connect to IP')
 _p(r'Process\.start\s*\(\s*.*(/bin/sh|bash|cmd|powershell)', 'reverse_shell', 10, 'Dart Process.start spawning shell')
 _p(r'dart:io.*Socket\.connect', 'reverse_shell', 9, 'Dart IO Socket connect')
 
-# ─── Awk Reverse Shell ───────────────────────────────────
+# Awk Reverse Shell
 _p(r'awk\s+.*BEGIN.*inet.*stream', 'reverse_shell', 10, 'Awk inet reverse shell')
 _p(r'awk.*\/inet\/tcp\/\d+\/', 'reverse_shell', 10, 'Awk /inet/tcp/ reverse shell')
 _p(r'gawk\s+.*\/inet\/', 'reverse_shell', 10, 'Gawk inet reverse shell')
 
-# ─── OpenSSL Reverse Shell ───────────────────────────────
+# OpenSSL Reverse Shell
 _p(r'openssl\s+s_client\s+-connect\s+\d+\.\d+', 'reverse_shell', 10, 'OpenSSL reverse shell (s_client)')
 _p(r'openssl\s+s_client.*-quiet', 'reverse_shell', 9, 'OpenSSL quiet s_client connection')
 _p(r'mkfifo.*openssl\s+s_client', 'reverse_shell', 10, 'Named pipe + OpenSSL reverse shell')
 
-# ─── Telnet Reverse Shell ────────────────────────────────
+# Telnet Reverse Shell
 _p(r'telnet\s+\d+\.\d+.*\|\s*/bin/(ba)?sh', 'reverse_shell', 10, 'Telnet reverse shell piped to shell')
 _p(r'mkfifo.*telnet\s+\d+\.\d+', 'reverse_shell', 10, 'Named pipe + Telnet reverse shell')
 _p(r'telnet\s+\d+\.\d+\.\d+\.\d+\s+\d+\s*\|', 'reverse_shell', 9, 'Telnet piped shell')
 
-# ─── Xterm Reverse Shell ─────────────────────────────────
+# Xterm Reverse Shell
 _p(r'xterm\s+-display\s+\d+\.\d+', 'reverse_shell', 10, 'Xterm reverse shell (X11 forwarding)')
 _p(r'DISPLAY=\d+\.\d+.*xterm', 'reverse_shell', 10, 'Xterm DISPLAY reverse shell')
 
-# ─── HoaxShell (PowerShell) ──────────────────────────────
+# HoaxShell (PowerShell)
 _p(r'hoaxshell|hoax.shell', 'reverse_shell', 10, 'HoaxShell reference detected')
 _p(r'Invoke-Expression.*DownloadString.*http', 'reverse_shell', 10, 'PowerShell download + execute cradle')
 _p(r'IEX\s*\(\s*\(New-Object\s+Net\.WebClient\)\.DownloadString', 'reverse_shell', 10, 'PowerShell IEX DownloadString cradle')
@@ -213,38 +209,36 @@ _p(r'Invoke-(Expression|Command).*\$\(.*Invoke-WebRequest', 'reverse_shell', 10,
 _p(r'ConvertTo-SecureString.*AES|SecureString.*Key', 'obfuscation', 8, 'PowerShell encrypted payload')
 _p(r'\$client\s*=\s*New-Object.*TCPClient.*while.*\$true', 'reverse_shell', 10, 'PowerShell TCP client loop (persistent shell)')
 
-# ─── Additional Bash/Unix Variations ─────────────────────
+# Additional Bash/Unix Variations
 _p(r'bash\s+-c\s+.*socket|bash\s+-c\s+.*tcp', 'reverse_shell', 9, 'Bash -c with socket/tcp')
 _p(r'0<&\d+;exec\s+\d+<>/dev/tcp', 'reverse_shell', 10, 'Bash fd-based reverse shell variant')
 _p(r'rm\s+/tmp/f;mkfifo\s+/tmp/f', 'reverse_shell', 10, 'Named pipe reverse shell setup')
 _p(r'busybox\s+nc\s+.*-e', 'reverse_shell', 10, 'BusyBox netcat reverse shell')
 _p(r'zsh\s+-c\s+.*zmodload.*net/tcp', 'reverse_shell', 10, 'Zsh TCP module reverse shell')
 
-# ─── Additional Python Variations ────────────────────────
+# Additional Python Variations
 _p(r'pty\.spawn\s*\(\s*.*(/bin/sh|bash|sh)', 'reverse_shell', 10, 'Python pty.spawn interactive shell')
 _p(r'import\s+pty.*import\s+socket', 'reverse_shell', 9, 'Python pty + socket (interactive reverse shell)')
 _p(r'os\.popen\s*\(\s*.*nc\s', 'reverse_shell', 9, 'Python os.popen with netcat')
 _p(r'subprocess.*PIPE.*socket', 'reverse_shell', 9, 'Python subprocess PIPE with socket')
 
-# ─── Additional PHP Variations ───────────────────────────
+# Additional PHP Variations
 _p(r'pfsockopen\s*\(', 'reverse_shell', 9, 'PHP persistent socket (pfsockopen)')
 _p(r'proc_open\s*\(.*cmd|proc_open\s*\(.*sh', 'reverse_shell', 10, 'PHP proc_open shell')
 _p(r'pcntl_exec\s*\(\s*.*(/bin/sh|/bin/bash)', 'reverse_shell', 10, 'PHP pcntl_exec shell')
 _p(r'stream_socket_client\s*\(\s*["\']tcp://', 'reverse_shell', 9, 'PHP stream_socket_client TCP')
 
-# ─── Additional Ruby Variations ──────────────────────────
+# Additional Ruby Variations
 _p(r'TCPSocket\.(new|open)\s*\(\s*["\']?\d+\.\d+', 'reverse_shell', 10, 'Ruby TCPSocket connect to IP')
 _p(r'IO\.popen\s*\(\s*.*(/bin/sh|bash|cmd)', 'reverse_shell', 9, 'Ruby IO.popen shell')
 _p(r'Open3\.popen3\s*\(\s*.*(/bin/sh|bash)', 'reverse_shell', 9, 'Ruby Open3 shell')
 
-# ─── Additional Perl Variations ──────────────────────────
+# Additional Perl Variations
 _p(r'IO::Socket::INET.*PeerAddr', 'reverse_shell', 9, 'Perl IO::Socket::INET connect')
 _p(r'open\s*\(\s*STDIN.*\|\|.*exec', 'reverse_shell', 10, 'Perl STDIN redirect + exec')
 _p(r'perl.*-MIO.*Socket.*INET', 'reverse_shell', 10, 'Perl one-liner socket reverse shell')
 
-# ═══════════════════════════════════════════════════════════
 #  Bind Shells
-# ═══════════════════════════════════════════════════════════
 
 _p(r'nc\s+-l(v)?p?\s+\d+.*-e', 'bind_shell', 10, 'Netcat bind shell listening')
 _p(r'ncat\s+(-l|--listen).*(-e|--exec)', 'bind_shell', 10, 'Ncat bind shell')
@@ -253,9 +247,7 @@ _p(r'socket\.bind\s*\(\s*\(.*0\.0\.0\.0', 'bind_shell', 8, 'Socket bind on all i
 _p(r'socket\.listen\s*\(\s*\).*exec|socket\.accept.*exec', 'bind_shell', 9, 'Socket listen + exec (bind shell)')
 _p(r'ServerSocket\s*\(\s*\d+\s*\).*accept', 'bind_shell', 8, 'Java ServerSocket bind shell')
 
-# ═══════════════════════════════════════════════════════════
 #  Web Shells (expanded)
-# ═══════════════════════════════════════════════════════════
 
 _p(r'eval\s*\(\s*\$_(GET|POST|REQUEST|COOKIE)', 'webshell', 10, 'PHP web shell (eval user input)')
 _p(r'(system|exec|passthru|shell_exec)\s*\(\s*\$_(GET|POST|REQUEST)', 'webshell', 10, 'PHP command injection via user input')
@@ -269,9 +261,7 @@ _p(r'call_user_func\s*\(.*\$_(GET|POST|REQUEST)', 'webshell', 10, 'PHP call_user
 _p(r'wso\s*shell|FilesMan|WSO\s*\d', 'webshell', 10, 'WSO web shell signature')
 _p(r'uname\s*-a.*phpinfo|phpinfo.*uname', 'webshell', 8, 'Web shell recon pattern')
 
-# ═══════════════════════════════════════════════════════════
 #  Credential Theft / Harvesting
-# ═══════════════════════════════════════════════════════════
 
 _p(r'mimikatz|sekurlsa|kerberos.*ticket', 'credential_theft', 10, 'Mimikatz/credential dumping tool reference')
 _p(r'hashdump|pwdump|samdump|fgdump', 'credential_theft', 10, 'Password hash dumping tool')
@@ -286,9 +276,7 @@ _p(r'procdump.*-ma\s+lsass|procdump.*lsass', 'credential_theft', 10, 'ProcDump t
 _p(r'reg\s+save.*SAM|reg\s+save.*SYSTEM', 'credential_theft', 10, 'Registry hive extraction for credential theft')
 _p(r'Invoke-Kerberoast|rubeus|asreproast', 'credential_theft', 10, 'Kerberos attack tool')
 
-# ═══════════════════════════════════════════════════════════
 #  Privilege Escalation
-# ═══════════════════════════════════════════════════════════
 
 _p(r'sudo\s+(chmod\s+[47]|chown\s+root|bash|su\s)', 'priv_escalation', 8, 'Sudo privilege escalation attempt')
 _p(r'chmod\s+[ugo]*\+?s\s', 'priv_escalation', 9, 'SUID/SGID bit manipulation')
@@ -303,9 +291,7 @@ _p(r'Invoke-PowerShellTcp|Invoke-Shellcode', 'priv_escalation', 10, 'PowerSploit
 _p(r'find\s+/\s+-perm.*-type\s+f.*suid', 'priv_escalation', 7, 'SUID binary enumeration')
 _p(r'getcap\s|setcap\s|cap_setuid', 'priv_escalation', 8, 'Linux capabilities manipulation')
 
-# ═══════════════════════════════════════════════════════════
 #  Persistence Mechanisms
-# ═══════════════════════════════════════════════════════════
 
 _p(r'crontab\s+(-e|-l|.*\*/)', 'persistence', 8, 'Crontab modification (persistence)')
 _p(r'/etc/cron\.d|/etc/crontab', 'persistence', 8, 'System cron modification')
@@ -321,9 +307,7 @@ _p(r'startup\s+folder|shell:startup', 'persistence', 8, 'Windows startup folder 
 _p(r'WMI.*EventSubscription|__EventFilter', 'persistence', 9, 'WMI event subscription persistence')
 _p(r'New-ItemProperty.*CurrentVersion\\Run', 'persistence', 9, 'PowerShell registry Run key persistence')
 
-# ═══════════════════════════════════════════════════════════
 #  Data Exfiltration
-# ═══════════════════════════════════════════════════════════
 
 _p(r'curl\s+.*-d\s+@|curl\s+.*--data-binary\s+@', 'exfiltration', 8, 'File upload via curl')
 _p(r'wget\s+.*--post-file', 'exfiltration', 8, 'File upload via wget')
@@ -333,9 +317,7 @@ _p(r'(zip|tar|7z|rar)\s+.*(/etc/|C:\\Windows\\|/home/|C:\\Users\\)', 'exfiltrati
 _p(r'certutil\s+-encode|certutil.*-urlcache', 'exfiltration', 9, 'Certutil for encoding/download (LOLBin)')
 _p(r'bitsadmin\s+/transfer', 'exfiltration', 8, 'BitsAdmin file transfer (LOLBin)')
 
-# ═══════════════════════════════════════════════════════════
 #  Obfuscation / Encoding
-# ═══════════════════════════════════════════════════════════
 
 _p(r'-enc(oded)?c(ommand)?\s+[A-Za-z0-9+/=]{20,}', 'obfuscation', 9, 'PowerShell encoded command')
 _p(r'base64\s+(-d|--decode)', 'obfuscation', 7, 'Base64 decode operation')
@@ -352,18 +334,14 @@ _p(r'Add-MpPreference\s+-ExclusionPath', 'evasion', 9, 'Windows Defender exclusi
 _p(r'AMSI.*bypass|AmsiUtils|amsiInitFailed', 'evasion', 10, 'AMSI bypass technique')
 _p(r'Unregister-EventLog|Clear-EventLog|wevtutil\s+cl', 'evasion', 9, 'Event log clearing (evidence destruction)')
 
-# ═══════════════════════════════════════════════════════════
 #  Suspicious System Calls
-# ═══════════════════════════════════════════════════════════
 
 _p(r'os\.system\s*\(|subprocess\.Popen\s*\(.*shell\s*=\s*True', 'suspicious_exec', 7, 'Python shell command execution')
 _p(r'Runtime\.getRuntime\(\)\.exec', 'suspicious_exec', 7, 'Java Runtime exec')
 _p(r'ProcessBuilder|ProcessStartInfo', 'suspicious_exec', 6, 'Process creation API')
 _p(r'WScript\.Shell|Shell\.Application', 'suspicious_exec', 7, 'Windows Script Host shell access')
 
-# ═══════════════════════════════════════════════════════════
 #  Network Reconnaissance
-# ═══════════════════════════════════════════════════════════
 
 _p(r'nmap\s|masscan\s|zmap\s', 'recon', 7, 'Network scanning tool')
 _p(r'net\s+(user|localgroup|group)\s', 'recon', 6, 'Windows user/group enumeration')
@@ -374,9 +352,7 @@ _p(r'gobuster|dirbuster|ffuf|wfuzz', 'recon', 7, 'Web directory enumeration tool
 _p(r'BloodHound|SharpHound|PowerView', 'recon', 9, 'Active Directory enumeration tool')
 _p(r'Invoke-Portscan|Test-NetConnection.*-Port', 'recon', 7, 'PowerShell port scanning')
 
-# ═══════════════════════════════════════════════════════════
 #  Destructive Actions
-# ═══════════════════════════════════════════════════════════
 
 _p(r'rm\s+-rf\s+/(?!tmp)', 'destructive', 9, 'Recursive delete from root')
 _p(r'dd\s+if=/dev/(zero|random).*of=/dev/', 'destructive', 10, 'Disk overwrite with dd')
@@ -385,9 +361,7 @@ _p(r':(){ :\|:& };:', 'destructive', 10, 'Fork bomb')
 _p(r'del\s+/[fFsS]\s+.*\*\.\*', 'destructive', 8, 'Windows force delete wildcard')
 _p(r'cipher\s+/w:', 'destructive', 8, 'Cipher wipe command (Windows)')
 
-# ═══════════════════════════════════════════════════════════
 #  Ransomware Indicators
-# ═══════════════════════════════════════════════════════════
 
 _p(r'from\s+Crypto(dome)?\.Cipher\s+import\s+AES', 'ransomware', 9, 'Python AES encryption import (potential ransomware)')
 _p(r'RSA\.generate|AES\.new.*MODE_CBC|Fernet\.generate_key', 'ransomware', 8, 'Cryptographic key generation (potential ransomware)')
@@ -400,9 +374,7 @@ _p(r'CryptEncrypt|CryptGenKey|CryptAcquireContext', 'ransomware', 9, 'Win32 Cryp
 _p(r'vssadmin\s+delete\s+shadows|wmic\s+shadowcopy\s+delete', 'ransomware', 10, 'Shadow copy deletion (ransomware indicator)')
 _p(r'bcdedit\s+/set.*recoveryenabled\s+no', 'ransomware', 10, 'Boot recovery disabled (ransomware)')
 
-# ═══════════════════════════════════════════════════════════
 #  Cryptominer Indicators
-# ═══════════════════════════════════════════════════════════
 
 _p(r'stratum\+tcp://|stratum\+ssl://', 'cryptominer', 9, 'Mining pool connection (cryptominer)')
 _p(r'xmrig|cpuminer|cgminer|bfgminer|ethminer', 'cryptominer', 10, 'Known cryptominer binary')
@@ -410,9 +382,7 @@ _p(r'--coin\s*=|--algo\s*=.*cryptonight|--donate-level', 'cryptominer', 10, 'Cry
 _p(r'coinhive|cryptoloot|webminer|coin-hive', 'cryptominer', 10, 'Browser-based cryptominer')
 _p(r'hashrate|mining.*pool|wallet.*address.*mining', 'cryptominer', 8, 'Mining-related terminology')
 
-# ═══════════════════════════════════════════════════════════
 #  Trojan / RAT Indicators
-# ═══════════════════════════════════════════════════════════
 
 _p(r'covenant|empire|cobalt.?strike|sliver', 'rat', 10, 'Known C2 framework reference')
 _p(r'TeamServer|BeaconPayload|StagelessPayload', 'rat', 10, 'Cobalt Strike component')
@@ -421,9 +391,7 @@ _p(r'reverse_tcp|reverse_https|bind_tcp', 'rat', 9, 'Meterpreter payload type')
 _p(r'pyinstaller.*onefile.*noconsole', 'rat', 8, 'PyInstaller hidden executable (common RAT packaging)')
 _p(r'pwncat|villain|havoc|mythic|brute.?ratel', 'rat', 10, 'Known C2/post-exploitation framework')
 
-# ═══════════════════════════════════════════════════════════
 #  Suspicious File Paths (in content)
-# ═══════════════════════════════════════════════════════════
 
 _p(r'C:\\Windows\\System32\\config\\SAM', 'suspicious_path', 9, 'Reference to SAM database path')
 _p(r'C:\\Windows\\NTDS\\ntds\.dit', 'suspicious_path', 9, 'Active Directory database reference')
@@ -432,19 +400,17 @@ _p(r'/tmp/\.hidden|/dev/shm/\.\w+', 'suspicious_path', 8, 'Hidden file in temp/s
 _p(r'C:\\Windows\\Temp\\.*\.(exe|dll|bat|ps1)', 'suspicious_path', 8, 'Executable in Windows Temp directory')
 
 
-# ═══════════════════════════════════════════════════════════
 #  Suspicious Path Patterns (file location analysis)
-# ═══════════════════════════════════════════════════════════
 
 HIGH_RISK_PATHS = [
-    # ─── Cross-platform system directories ─────────────────
+    # Cross-platform system directories
     (re.compile(r'(system32|windows\\system|syswow64)', re.I), 8, 'System directory modification'),
     (re.compile(r'(/etc/(passwd|shadow|sudoers|ssh))', re.I), 9, 'Critical system config'),
     (re.compile(r'(\.ssh/(authorized_keys|id_rsa|config))', re.I), 9, 'SSH key/config modification'),
     (re.compile(r'(cron\.d|crontab|init\.d|systemd)', re.I), 8, 'Service/cron modification'),
     (re.compile(r'([\\/]startup[\\/]|[\\/]autostart[\\/]|autorun\.inf\b|run\\)', re.I), 7, 'Auto-start location'),
 
-    # ─── Windows-specific paths ───────────────────────────
+    # Windows-specific paths
     (re.compile(r'system32\\config\\(SAM|SECURITY|SYSTEM)', re.I), 10, 'Windows registry hive file'),
     (re.compile(r'system32\\drivers\\', re.I), 9, 'Kernel driver directory'),
     (re.compile(r'system32\\Tasks\\', re.I), 8, 'Scheduled task definition'),
@@ -454,7 +420,7 @@ HIGH_RISK_PATHS = [
     (re.compile(r'Start\s*Menu\\Programs\\Startup', re.I), 8, 'User startup persistence'),
     (re.compile(r'CurrentVersion\\Run', re.I), 9, 'Registry autorun key'),
 
-    # ─── macOS-specific paths ─────────────────────────────
+    # macOS-specific paths
     (re.compile(r'LaunchDaemons/', re.I), 9, 'macOS LaunchDaemon (system persistence)'),
     (re.compile(r'LaunchAgents/', re.I), 8, 'macOS LaunchAgent (user persistence)'),
     (re.compile(r'/System/Library/', re.I), 8, 'macOS core system framework'),
@@ -462,7 +428,7 @@ HIGH_RISK_PATHS = [
     (re.compile(r'/etc/authorization', re.I), 9, 'macOS authorization config'),
     (re.compile(r'/Library/Security/', re.I), 8, 'macOS security framework extension'),
 
-    # ─── Linux-specific paths ─────────────────────────────
+    # Linux-specific paths
     (re.compile(r'/boot/', re.I), 9, 'Boot loader / kernel image'),
     (re.compile(r'/lib/modules/', re.I), 9, 'Kernel modules directory'),
     (re.compile(r'/etc/pam\.d/', re.I), 9, 'PAM authentication module'),
@@ -479,9 +445,7 @@ HIGH_RISK_EXTENSIONS = {
 }
 
 
-# ═══════════════════════════════════════════════════════════
 #  MITRE ATT&CK Mapping + Threat Classifications
-# ═══════════════════════════════════════════════════════════
 
 MITRE_MAPPING: Dict[str, Dict] = {
     'reverse_shell': {
@@ -559,24 +523,24 @@ MITRE_MAPPING: Dict[str, Dict] = {
 }
 
 THREAT_CLASSIFICATIONS: Dict[str, str] = {
-    'reverse_shell': 'Reverse Shell — Establishes outbound connection to attacker-controlled host, redirecting shell I/O over the network for remote command execution.',
-    'bind_shell': 'Bind Shell — Opens a listening port on the compromised host, allowing inbound attacker connections for remote shell access.',
-    'webshell': 'Web Shell — Server-side script providing remote access and command execution through a web interface.',
-    'credential_theft': 'Credential Theft — Extracts, dumps, or harvests authentication credentials (passwords, hashes, tokens, keys).',
-    'priv_escalation': 'Privilege Escalation — Attempts to gain higher-level permissions (root/SYSTEM) beyond those currently authorized.',
-    'persistence': 'Persistence Mechanism — Installs hooks to survive reboots and maintain access (cron, registry, services, startup).',
-    'exfiltration': 'Data Exfiltration — Transfers sensitive data out of the environment to an attacker-controlled destination.',
-    'obfuscation': 'Obfuscation / Encoding — Uses encoding, encryption, or packing to conceal malicious payload from detection.',
-    'evasion': 'Security Evasion — Disables or bypasses security controls (AV, logging, AMSI, firewalls).',
-    'process_injection': 'Process Injection — Injects code into another running process to execute under its context and evade detection.',
-    'c2_callback': 'C2 Callback — Establishes command-and-control communication channel with attacker infrastructure.',
-    'ransomware': 'Ransomware — Encrypts files and demands payment for decryption keys.',
-    'cryptominer': 'Cryptominer — Hijacks system resources to mine cryptocurrency without authorization.',
-    'rat': 'Remote Access Trojan — Provides persistent covert remote control of the compromised system.',
-    'destructive': 'Destructive Action — Deletes, overwrites, or corrupts data and system resources.',
-    'recon': 'Reconnaissance — Enumerates system information, network topology, users, or services.',
-    'suspicious_exec': 'Suspicious Execution — Spawns shell processes or executes commands in a pattern consistent with exploitation.',
-    'suspicious_path': 'Suspicious File Location — File resides in or references a path commonly abused by malware.',
+    'reverse_shell': 'Reverse Shell - Establishes outbound connection to attacker-controlled host, redirecting shell I/O over the network for remote command execution.',
+    'bind_shell': 'Bind Shell - Opens a listening port on the compromised host, allowing inbound attacker connections for remote shell access.',
+    'webshell': 'Web Shell - Server-side script providing remote access and command execution through a web interface.',
+    'credential_theft': 'Credential Theft - Extracts, dumps, or harvests authentication credentials (passwords, hashes, tokens, keys).',
+    'priv_escalation': 'Privilege Escalation - Attempts to gain higher-level permissions (root/SYSTEM) beyond those currently authorized.',
+    'persistence': 'Persistence Mechanism - Installs hooks to survive reboots and maintain access (cron, registry, services, startup).',
+    'exfiltration': 'Data Exfiltration - Transfers sensitive data out of the environment to an attacker-controlled destination.',
+    'obfuscation': 'Obfuscation / Encoding - Uses encoding, encryption, or packing to conceal malicious payload from detection.',
+    'evasion': 'Security Evasion - Disables or bypasses security controls (AV, logging, AMSI, firewalls).',
+    'process_injection': 'Process Injection - Injects code into another running process to execute under its context and evade detection.',
+    'c2_callback': 'C2 Callback - Establishes command-and-control communication channel with attacker infrastructure.',
+    'ransomware': 'Ransomware - Encrypts files and demands payment for decryption keys.',
+    'cryptominer': 'Cryptominer - Hijacks system resources to mine cryptocurrency without authorization.',
+    'rat': 'Remote Access Trojan - Provides persistent covert remote control of the compromised system.',
+    'destructive': 'Destructive Action - Deletes, overwrites, or corrupts data and system resources.',
+    'recon': 'Reconnaissance - Enumerates system information, network topology, users, or services.',
+    'suspicious_exec': 'Suspicious Execution - Spawns shell processes or executes commands in a pattern consistent with exploitation.',
+    'suspicious_path': 'Suspicious File Location - File resides in or references a path commonly abused by malware.',
 }
 
 # Regex for extracting IOCs (IPs, ports) from content
@@ -742,9 +706,7 @@ def _extract_iocs(content: str) -> List[str]:
     return iocs[:10]  # Cap at 10
 
 
-# ═══════════════════════════════════════════════════════════
 #  Context-Aware Diff Parsing
-# ═══════════════════════════════════════════════════════════
 
 _CURRENT_CONTENT_MARKER = "=== CURRENT CONTENT (snippet) ==="
 _UNIFIED_DIFF_MARKER = "=== UNIFIED DIFF (before -> after) ==="
@@ -804,9 +766,7 @@ def _summarize_change_from_context(content: Optional[str]) -> str:
         f"{added_count} line(s) added and {removed_count} line(s) removed."
     )
 
-# ═══════════════════════════════════════════════════════════
 #  Content Summary (for readable files)
-# ═══════════════════════════════════════════════════════════
 
 def _summarize_content(content: str, file_path: str) -> str:
     """
@@ -875,7 +835,7 @@ def _summarize_content(content: str, file_path: str) -> str:
     if non_empty and non_empty[0].startswith('#!'):
         features.append(f"shebang: {non_empty[0][:40]}")
 
-    # Fallback — show first meaningful line
+    # Fallback - show first meaningful line
     if not features and non_empty:
         first_line = non_empty[0][:80]
         features.append(f"starts with: \"{first_line}\"")
@@ -887,9 +847,7 @@ def _summarize_content(content: str, file_path: str) -> str:
     return f"File content ({size_note}): {'; '.join(features)}."
 
 
-# ═══════════════════════════════════════════════════════════
 #  Main Analysis Function
-# ═══════════════════════════════════════════════════════════
 
 def analyze_file_change(
     file_path: str,
@@ -900,7 +858,7 @@ def analyze_file_change(
     """
     Analyze a file change with the configured LLM provider chain:
 
-        1. Local Ollama  (settings.ollama_model — defaults to gemma4:latest)
+        1. Local Ollama  (settings.ollama_model - defaults to gemma4:latest)
         2. Gemini REST   (only when settings.gemini_api_key is set)
         3. Heuristic engine (always available, regex-based)
 
@@ -922,6 +880,21 @@ def analyze_file_change(
             "rely on content-based indicators."
         )
 
+    registry_note = ""
+    if metadata and metadata.get("registry"):
+        registry_note = (
+            "\n=== File Identity Registry Context ===\n"
+            f"{json.dumps(metadata.get('registry'), ensure_ascii=False)}\n"
+            "Use this context to reason about what the file controls. "
+            "For non-baseline changes, a critical identity role can raise "
+            "severity even when the content snippet is empty, binary, or benign.\n"
+        )
+        if metadata.get("registry_signal"):
+            registry_note += (
+                "Registry Risk Signal: "
+                f"{json.dumps(metadata.get('registry_signal'), ensure_ascii=False)}\n"
+            )
+
     prompt_text = f"""You are an expert threat analyst on a File Integrity Monitoring (FIM) system.
 Your job is to perform DEEP PROACTIVE ANALYSIS of file changes to identify threats.
 
@@ -931,6 +904,7 @@ Change Type: {change_type}
 Metadata: {json.dumps(metadata) if metadata else 'N/A'}
 Baseline: {bool(metadata and metadata.get("is_baseline"))}
 {baseline_note}
+{registry_note}
 
 === Platform Context ===
 {os_context_block}
@@ -941,7 +915,7 @@ Baseline: {bool(metadata and metadata.get("is_baseline"))}
 === YOUR ANALYSIS TASKS ===
 1. IDENTIFY the threat type: Is this a reverse shell, bind shell, webshell, ransomware, cryptominer, RAT, credential theft, privilege escalation, persistence mechanism, data exfiltration, C2 callback, obfuscation, or benign?
 
-2. EXPLAIN what the content does step-by-step. For example, if it creates a named pipe, launches a shell, and tunnels through OpenSSL — explain each step and how they combine into an attack.
+2. EXPLAIN what the content does step-by-step. For example, if it creates a named pipe, launches a shell, and tunnels through OpenSSL - explain each step and how they combine into an attack.
 
 3. IF the file content contains "Context-Aware Change Analysis", compare the previous content, current content, and unified diff. Base severity on the current file and newly added lines. Mention removed dangerous code as remediation, not as an active threat.
 
@@ -1029,7 +1003,6 @@ def _enrich_llm_analysis(
     """Apply defaults, priority mapping, MITRE/IOC enrichment, and tag the source."""
     analysis.setdefault('risk_score', 5)
     analysis.setdefault('is_malicious', False)
-    analysis.setdefault('reasoning', 'No reasoning provided')
     analysis.setdefault('threat_type', 'unknown')
     analysis.setdefault('threat_classification', '')
     analysis.setdefault('mitre_attack', [])
@@ -1054,8 +1027,42 @@ def _enrich_llm_analysis(
     if not analysis['iocs'] and diff:
         analysis['iocs'] = _extract_iocs(diff)
 
+    if _missing_reasoning(analysis.get('reasoning')):
+        analysis['reasoning'] = _synthesize_llm_reasoning(analysis)
+
     analysis['analysis_source'] = source
     return analysis
+
+
+def _missing_reasoning(reasoning: Any) -> bool:
+    text = str(reasoning or '').strip().lower()
+    return not text or text in {'no reasoning provided', 'no reasoning provided.'}
+
+
+def _synthesize_llm_reasoning(analysis: Dict[str, Any]) -> str:
+    """Create useful analyst text when a model returns only sparse fields."""
+    score = int(analysis.get('risk_score') or 0)
+    priority = analysis.get('priority') or _score_to_priority(score)
+    threat_type = str(analysis.get('threat_type') or 'unknown').replace('_', ' ')
+    classification = analysis.get('threat_classification') or threat_type.title()
+    change_summary = analysis.get('change_summary') or 'The model did not provide a detailed change summary.'
+    mitre = analysis.get('mitre_attack') or []
+    iocs = analysis.get('iocs') or []
+    actions = analysis.get('recommended_actions') or []
+
+    parts = [
+        f"The model classified this event as {classification} with {priority.upper()} priority and risk {score}/10.",
+        str(change_summary),
+    ]
+    if threat_type and threat_type != 'unknown':
+        parts.append(f"The reported threat category is {threat_type}.")
+    if mitre:
+        parts.append(f"Mapped MITRE ATT&CK technique(s): {', '.join(str(item) for item in mitre)}.")
+    if iocs:
+        parts.append(f"Extracted IOC(s): {', '.join(str(item) for item in iocs)}.")
+    if actions:
+        parts.append(f"Immediate analyst action: {actions[0]}")
+    return ' '.join(part for part in parts if part).strip()
 
 
 def _score_to_priority(score: int) -> str:
@@ -1094,9 +1101,7 @@ def _default_recommended_actions(score: int, threat_type: str) -> List[str]:
     ]
 
 
-# ═══════════════════════════════════════════════════════════
 #  Heuristic Analysis Engine
-# ═══════════════════════════════════════════════════════════
 
 def _fallback_analysis(
     file_path: str,

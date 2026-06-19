@@ -1,11 +1,11 @@
 """
-test_notification.py — Unit tests for the notification dispatch engine
+test_notification.py  -  Unit tests for the notification dispatch engine
 and the tier pre-filter in background_analysis.
 
 Tests cover:
-  - Tier pre-filter (Tier 1 → critical bypass, Tier 4 → info bypass)
+  - Tier pre-filter (Tier 1 -> critical bypass, Tier 4 -> info bypass)
   - NotificationDispatcher routing (immediate / batched / silent)
-  - Escalation logic (N medium events in short window → immediate batch)
+  - Escalation logic (N medium events in short window -> immediate batch)
   - Config get/update
   - Dispatch history tracking
 """
@@ -24,9 +24,7 @@ from core.notification_dispatcher import (
 )
 
 
-# ═══════════════════════════════════════════════════════════
 #  Tier Pre-Filter Tests
-# ═══════════════════════════════════════════════════════════
 
 class TestTierPreFilter(unittest.TestCase):
     """Tests for the _apply_tier_prefilter function."""
@@ -61,7 +59,7 @@ class TestTierPreFilter(unittest.TestCase):
         from core.background_analysis import _apply_tier_prefilter
         log = self._make_mock_log('/etc/crontab')
         result = _apply_tier_prefilter(log)
-        # /etc/crontab is Tier 2 on Linux — should return None (send to LLM)
+        # /etc/crontab is Tier 2 on Linux  -  should return None (send to LLM)
         # Note: this test is platform-specific; on Windows get_tier_for_path
         # may return None for Linux paths
         if result is not None:
@@ -72,13 +70,11 @@ class TestTierPreFilter(unittest.TestCase):
         from core.background_analysis import _apply_tier_prefilter
         log = self._make_mock_log('/random/unknown/file.xyz')
         result = _apply_tier_prefilter(log)
-        # Unclassified paths return None → LLM analysis
+        # Unclassified paths return None -> LLM analysis
         self.assertIsNone(result)
 
 
-# ═══════════════════════════════════════════════════════════
 #  Notification Dispatcher Tests
-# ═══════════════════════════════════════════════════════════
 
 class TestNotificationDispatcher(unittest.TestCase):
     """Tests for the NotificationDispatcher class."""
@@ -159,7 +155,7 @@ class TestNotificationDispatcher(unittest.TestCase):
         self.assertTrue(len(escalated) > 0, "Escalation should have been triggered")
 
     def test_high_risk_score_triggers_immediate(self):
-        """Even if priority string is wrong, risk_score >= 8 → immediate."""
+        """Even if priority string is wrong, risk_score >= 8 -> immediate."""
         event = {
             'path': '/usr/bin/sudo',
             'priority': 'medium',    # misclassified
@@ -171,9 +167,7 @@ class TestNotificationDispatcher(unittest.TestCase):
         self.assertEqual(history[-1]['dispatch_type'], 'immediate')
 
 
-# ═══════════════════════════════════════════════════════════
 #  Config Tests
-# ═══════════════════════════════════════════════════════════
 
 class TestNotificationConfig(unittest.TestCase):
     """Tests for notification config management."""
@@ -204,9 +198,7 @@ class TestNotificationConfig(unittest.TestCase):
         self.assertEqual(dispatcher.config.escalation_threshold, 10)
 
 
-# ═══════════════════════════════════════════════════════════
 #  History Tests
-# ═══════════════════════════════════════════════════════════
 
 class TestDispatchHistory(unittest.TestCase):
 

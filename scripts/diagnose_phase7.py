@@ -1,5 +1,5 @@
 """
-diagnose_phase7.py — repro for tasks.md Phase 7:
+diagnose_phase7.py  -  repro for tasks.md Phase 7:
 
     "modifications analyzed by background_analysis.py
      are not appearing on the web interface."
@@ -78,7 +78,7 @@ def dump_records(label: str) -> None:
         for r in recs:
             print(
                 f"  path={Path(r.path).name:<24} "
-                f"hash={r.hash[:8]}… "
+                f"hash={r.hash[:8]}... "
                 f"baseline={r.is_baseline} "
                 f"size={r.size}"
             )
@@ -92,30 +92,30 @@ def main() -> int:
     user_file = target / "notes.txt"
     user_file.write_text("hello world\n")
 
-    section("Stage 0 — Initial baseline scan")
+    section("Stage 0  -  Initial baseline scan")
     result = scanner.scan_and_baseline(str(target))
     print(f"scan_and_baseline result: {result}")
     dump_records("after baseline")
     dump_logs("after baseline")
 
-    section("Stage 1 — Modify the file")
+    section("Stage 1  -  Modify the file")
     time.sleep(1.1)  # ensure mtime changes
     user_file.write_text("hello world\nan extra line that was not in baseline\n")
     print(f"Modified: {user_file}")
 
-    section("Stage 2 — compare_and_log (the scan-mode change detector)")
+    section("Stage 2  -  compare_and_log (the scan-mode change detector)")
     cl = scanner.compare_and_log(str(target))
     print(f"compare_and_log result: {cl}")
     dump_logs("after compare_and_log")
 
-    section("Stage 3 — process_pending_analysis (background analyser)")
+    section("Stage 3  -  process_pending_analysis (background analyser)")
     # Mark the path as actively watched so Tier 1/2 suppression doesn't fire.
     background_analysis.update_monitor_state(False, [str(target)])
     processed = background_analysis.process_pending_analysis(batch_size=10)
     print(f"process_pending_analysis processed={processed} events")
     dump_logs("after analysis")
 
-    section("Stage 4 — what /api/baseline would return")
+    section("Stage 4  -  what /api/baseline would return")
     # Mirror the logic in core/api.py::get_baseline without spinning up FastAPI.
     s = _db.SessionLocal()
     try:
@@ -146,7 +146,7 @@ def main() -> int:
     finally:
         s.close()
 
-    section("Stage 5 — what /api/files/timeline would return")
+    section("Stage 5  -  what /api/files/timeline would return")
     # Use the path EXACTLY as it was stored, mirroring what the
     # frontend round-trips from /api/baseline back to /api/files/timeline.
     s = _db.SessionLocal()
@@ -156,7 +156,7 @@ def main() -> int:
         print(f"stored FileRecord.path = {stored_path!r}")
         print(f"Path.resolve()         = {str(user_file.resolve())!r}")
         if not stored_path:
-            print("  (no FileRecord found — cannot query timeline)")
+            print("  (no FileRecord found  -  cannot query timeline)")
         else:
             logs = (
                 s.query(FileLog)
@@ -173,13 +173,13 @@ def main() -> int:
     finally:
         s.close()
 
-    section("Stage 6 — exercise the real FastAPI endpoints")
+    section("Stage 6  -  exercise the real FastAPI endpoints")
     # Spin up the FastAPI app against the patched DB, hit the same routes
     # the dashboard polls, and print what the JSON wire format looks like.
     import json
     from fastapi.testclient import TestClient
     from core import api as api_mod  # imports trigger init_db on the patched engine
-    # api.py grabs SessionLocal at import time — make sure it sees ours.
+    # api.py grabs SessionLocal at import time  -  make sure it sees ours.
     api_mod.SessionLocal = _db.SessionLocal
     client = TestClient(api_mod.app)
 
@@ -193,7 +193,7 @@ def main() -> int:
         print(f"\nGET /api/files/timeline?path={path} ->")
         print(json.dumps(timeline, indent=2, default=str)[:1500])
 
-    section("Stage 7 — modify a file with a real threat indicator")
+    section("Stage 7  -  modify a file with a real threat indicator")
     # Drop a snippet that the heuristic engine will flag (reverse-shell pattern).
     threat_file = target / "evil.sh"
     threat_file.write_text(

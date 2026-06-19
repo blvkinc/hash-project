@@ -1,5 +1,5 @@
 """
-test_provider_chain.py — verify the Ollama -> Gemini -> heuristic fallback
+test_provider_chain.py  -  verify the Ollama -> Gemini -> heuristic fallback
 order in core.llm_analyzer.analyze_file_change.
 
 Uses mock to intercept HTTP calls so the test doesn't depend on a live
@@ -104,7 +104,7 @@ def test_gemini_skipped_when_key_unset(_reset_settings):
             "/tmp/y", "modified", diff="benign\n", metadata={},
         )
 
-    # _fallback_analysis sets its own analysis_source — assert we didn't hit Gemini
+    # _fallback_analysis sets its own analysis_source  -  assert we didn't hit Gemini
     # and we still got a structured analysis dict.
     gemini_call.assert_not_called()
     assert "risk_score" in result

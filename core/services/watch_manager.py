@@ -1,5 +1,5 @@
 """
-watch_manager.py — orchestrates one FileWatcher per monitored directory.
+watch_manager.py  -  orchestrates one FileWatcher per monitored directory.
 
 Extracted from core.api to keep route handlers focused on HTTP concerns.
 """

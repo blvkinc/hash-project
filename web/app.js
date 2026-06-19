@@ -22,6 +22,9 @@ let desktopAlertsEnabled = false;
 let notificationHistory = [];
 let notificationCenterOpen = false;
 let readNotificationIds = new Set();
+let openInvestigationDrawers = new Set();
+let agentActivity = null;
+let agentPanelOpen = false;
 
 /* --- DOM Refs -------------------------------- */
 const $ = id => document.getElementById(id);
@@ -65,6 +68,23 @@ const el = {
     notificationCenter: $('notificationCenter'),
     notificationCenterSubtitle: $('notificationCenterSubtitle'),
     notificationList: $('notificationList'),
+    agentPanelBtn: $('agentPanelBtn'),
+    agentPanelState: $('agentPanelState'),
+    agentPanel: $('agentPanel'),
+    agentPanelClose: $('agentPanelClose'),
+    agentPanelBackdrop: $('agentPanelBackdrop'),
+    agentStatePill: $('agentStatePill'),
+    agentCurrentSummary: $('agentCurrentSummary'),
+    agentModeValue: $('agentModeValue'),
+    agentMemoryValue: $('agentMemoryValue'),
+    agentQueueValue: $('agentQueueValue'),
+    agentPolicyRisk: $('agentPolicyRisk'),
+    agentPolicyBatch: $('agentPolicyBatch'),
+    agentPolicyBacklog: $('agentPolicyBacklog'),
+    agentLastRun: $('agentLastRun'),
+    agentActivitySubtitle: $('agentActivitySubtitle'),
+    agentActivityCount: $('agentActivityCount'),
+    agentActivityList: $('agentActivityList'),
     fileSidebar: $('fileSidebar'),
     fileList: $('fileList'),
     fileSearch: $('fileSearch'),
@@ -80,6 +100,7 @@ const el = {
 document.addEventListener('DOMContentLoaded', () => {
     initNotificationCenter();
     initNotificationPolicy();
+    initAgentPanel();
     tick();
     refresh();
     setInterval(refresh, 3000);
@@ -131,6 +152,7 @@ function refresh() {
     fetchWatcherStatus();
     fetchSystemMonitorStatus();
     fetchScanStatus();
+    fetchAgentActivity();
     fetchPriorityAlerts();
     fetchNotificationHistory();
     if (selectedFilePath || selectedFileId) fetchFileTimeline(selectedFilePath, selectedFileId);
@@ -141,6 +163,37 @@ function initNotificationCenter() {
         readNotificationIds = new Set(JSON.parse(localStorage.getItem('ig_read_notifications') || '[]'));
     } catch {
         readNotificationIds = new Set();
+    }
+}
+
+function initAgentPanel() {
+    document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && agentPanelOpen) {
+            toggleAgentPanel(false);
+        }
+    });
+}
+
+function toggleAgentPanel(force) {
+    agentPanelOpen = typeof force === 'boolean' ? force : !agentPanelOpen;
+    if (el.agentPanel) {
+        el.agentPanel.hidden = !agentPanelOpen;
+    }
+    if (el.agentPanelBackdrop) {
+        el.agentPanelBackdrop.hidden = !agentPanelOpen;
+    }
+    if (el.agentPanelBtn) {
+        el.agentPanelBtn.setAttribute('aria-expanded', agentPanelOpen ? 'true' : 'false');
+        el.agentPanelBtn.classList.toggle('is-open', agentPanelOpen);
+    }
+    document.body.classList.toggle('agent-panel-open', agentPanelOpen);
+    if (agentPanelOpen) {
+        fetchAgentActivity();
+        if (el.agentPanelClose) {
+            window.setTimeout(() => el.agentPanelClose.focus(), 0);
+        }
+    } else if (el.agentPanelBtn) {
+        el.agentPanelBtn.focus();
     }
 }
 
@@ -244,6 +297,165 @@ function setQueueMeter(count) {
     el.navAnalysisCount.textContent = safeCount > 99
         ? '99+'
         : String(safeCount).padStart(2, '0');
+}
+
+/* --- Agent View ----------------------------- */
+async function fetchAgentActivity() {
+    if (!el.agentActivityList) return;
+    try {
+        const r = await fetch(`${API}/agent/activity?limit=8`);
+        const d = await parseApiPayload(r);
+        if (!r.ok) {
+            console.error('Agent activity API error', d.detail || r.status);
+            return;
+        }
+        agentActivity = d;
+        renderAgentActivity(d);
+    } catch (e) {
+        console.error('Agent activity error', e);
+    }
+}
+
+function renderAgentActivity(data) {
+    const current = data.current || {};
+    const state = current.state || 'idle';
+    if (el.agentStatePill) {
+        el.agentStatePill.textContent = current.label || formatAgentState(state);
+        el.agentStatePill.className = `agent-state-pill state-${state}`;
+    }
+    if (el.agentPanelState) {
+        el.agentPanelState.textContent = current.label || formatAgentState(state);
+        el.agentPanelState.className = `agent-panel-button-state state-${state}`;
+    }
+    if (el.agentCurrentSummary) {
+        el.agentCurrentSummary.textContent = current.summary || 'No pending agent work.';
+    }
+    if (el.agentModeValue) {
+        const mode = data.mode || 'auto';
+        el.agentModeValue.textContent = `${mode}${data.llm_enabled ? ' + LLM' : ' local'}`;
+    }
+    if (el.agentMemoryValue) {
+        const memory = data.memory || {};
+        const backend = memory.backend || 'mempalace';
+        const enabled = memory.enabled === false ? 'disabled' : (memory.available === false ? 'unavailable' : 'ready');
+        el.agentMemoryValue.textContent = `${backend} ${enabled}`;
+    }
+    const queue = data.queue || {};
+    if (el.agentQueueValue) {
+        const pending = Number(queue.pending_analysis || 0);
+        const analyzed = Number(queue.analyzed || 0);
+        el.agentQueueValue.textContent = `${pending} pending / ${analyzed} analyzed`;
+    }
+    const policy = data.policy || {};
+    if (el.agentPolicyRisk) el.agentPolicyRisk.textContent = `${policy.min_risk ?? 7}+`;
+    if (el.agentPolicyBatch) el.agentPolicyBatch.textContent = String(policy.max_per_batch ?? 8);
+    if (el.agentPolicyBacklog) el.agentPolicyBacklog.textContent = String(policy.backlog_threshold ?? 500);
+
+    const summary = data.summary || {};
+    if (el.agentLastRun) {
+        el.agentLastRun.textContent = summary.last_investigation_at
+            ? `Last investigation ${formatRelativeTime(summary.last_investigation_at)}`
+            : 'No recent investigation';
+    }
+    const recent = Array.isArray(data.recent) ? data.recent : [];
+    if (el.agentActivitySubtitle) {
+        const investigated = Number(summary.investigated || 0);
+        const skipped = Number(summary.skipped || 0);
+        el.agentActivitySubtitle.textContent = recent.length
+            ? `${investigated} investigated / ${skipped} skipped in recent activity`
+            : 'No events yet';
+    }
+    if (el.agentActivityCount) {
+        el.agentActivityCount.textContent = String(recent.length);
+    }
+    if (!el.agentActivityList) return;
+    if (!recent.length) {
+        el.agentActivityList.innerHTML = `
+            <div class="agent-activity-empty">
+                No agent activity recorded. The agent appears here after baseline memory builds or important file changes.
+            </div>`;
+        return;
+    }
+    el.agentActivityList.innerHTML = recent.map(renderAgentActivityItem).join('');
+}
+
+function renderAgentActivityItem(item) {
+    const agent = item.agent || {};
+    const state = agent.state || 'recorded';
+    const priority = item.priority || 'info';
+    const title = agent.title || `${formatEventType(item.event_type)} file event`;
+    const summary = agent.summary || agent.reason || 'Agent context recorded.';
+    const time = item.timestamp ? formatRelativeTime(item.timestamp) : 'time unavailable';
+    const role = agent.semantic_role ? formatRegistryRole(agent.semantic_role) : '';
+    const tier = agent.tier ? `T${agent.tier}` : '';
+    const metaParts = [
+        `${priority.toUpperCase()}${item.risk_score != null ? ` risk ${item.risk_score}/10` : ''}`,
+        formatEventType(item.event_type),
+        role || tier ? `${tier}${tier && role ? ' ' : ''}${role}` : '',
+        time
+    ].filter(Boolean);
+    const tools = Array.isArray(agent.tools_used) ? agent.tools_used : [];
+    const toolChips = tools.length
+        ? tools.slice(0, 4).map(tool => `<span>${esc(formatToolName(tool))}</span>`).join('')
+        : (agent.content_inspected ? '<span>Content inspected</span>' : '');
+    const memoryChip = Number(agent.memory_hits || 0) > 0
+        ? `<span>${Number(agent.memory_hits)} memory hit${Number(agent.memory_hits) === 1 ? '' : 's'}</span>`
+        : '';
+    return `
+    <button type="button"
+        class="agent-activity-item agent-activity-${escAttr(state)}"
+        onclick="openAgentActivityTarget('${escAttr(item.path || '')}', ${item.file_id != null ? Number(item.file_id) : 'null'})">
+        <span class="agent-activity-state">${esc(formatAgentState(state))}</span>
+        <span class="agent-activity-body">
+            <span class="agent-activity-title">${esc(title)}</span>
+            <span class="agent-activity-summary">${esc(summary)}</span>
+            <span class="agent-activity-path" title="${esc(item.path || '')}">${esc(shortenPath(item.path || 'Unknown path'))}</span>
+            <span class="agent-activity-meta">${esc(metaParts.join(' · '))}</span>
+            ${toolChips || memoryChip ? `<span class="agent-activity-tools">${toolChips}${memoryChip}</span>` : ''}
+        </span>
+    </button>`;
+}
+
+function openAgentActivityTarget(path, fileId = null) {
+    if (path || fileId != null) {
+        selectFile(path, fileId);
+        toggleAgentPanel(false);
+        if (el.timelinePanel) {
+            el.timelinePanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+    }
+}
+
+function formatAgentState(state) {
+    const labels = {
+        idle: 'Idle',
+        disabled: 'Disabled',
+        scanning: 'Scanning',
+        queued: 'Queued',
+        building_memory: 'Building Memory',
+        investigated: 'Investigated',
+        skipped: 'Skipped',
+        contextualized: 'Contextualized',
+        pending: 'Pending',
+        recorded: 'Recorded'
+    };
+    return labels[state] || formatRegistryRole(state);
+}
+
+function formatEventType(eventType) {
+    return formatRegistryRole(eventType || 'event');
+}
+
+function formatRelativeTime(value) {
+    const dt = new Date(value);
+    if (Number.isNaN(dt.getTime())) return 'time unavailable';
+    const seconds = Math.max(0, Math.round((Date.now() - dt.getTime()) / 1000));
+    if (seconds < 60) return `${seconds}s ago`;
+    const minutes = Math.round(seconds / 60);
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.round(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+    return dt.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
 function bump(node, val) {
@@ -484,15 +696,28 @@ function renderNotificationCenter() {
         const unreadClass = readNotificationIds.has(key) ? '' : ' is-unread';
         const severity = item.severity || severityFromPriority(item.priority);
         const priority = item.priority || 'info';
-        const title = item.threat_classification || `${priority.toUpperCase()} file event`;
+        const agentNotification = item.agent_notification || {};
+        const title = agentNotification.title || item.threat_classification || `${priority.toUpperCase()} file event`;
+        const summary = agentNotification.summary || '';
         const when = item.timestamp ? new Date(item.timestamp).toLocaleString() : '';
+        const registry = item.registry || {};
+        const registryMeta = registry.semantic_role
+            ? `${registry.tier ? `T${registry.tier} ` : ''}${formatRegistryRole(registry.semantic_role)}`
+            : '';
+        const metaParts = [
+            registryMeta,
+            item.dispatch_type || 'notification',
+            `risk ${item.risk_score ?? 0}/10`,
+            when
+        ].filter(Boolean);
         return `
         <button type="button" class="notification-item${unreadClass}" onclick="openNotificationTarget('${escAttr(item.path || '')}', '${escAttr(key)}')">
             <span class="notification-severity sev-${escAttr(priority)}">${esc(severity)}</span>
             <span class="notification-body">
                 <span class="notification-title">${esc(title)}</span>
+                ${summary ? `<span class="notification-path">${esc(summary)}</span>` : ''}
                 <span class="notification-path" title="${esc(item.path || '')}">${esc(shortenPath(item.path || 'Unknown path'))}</span>
-                <span class="notification-meta">${esc(item.dispatch_type || 'notification')} · risk ${esc(item.risk_score ?? 0)}/10 · ${esc(when)}</span>
+                <span class="notification-meta">${esc(metaParts.join(' · '))}</span>
             </span>
         </button>`;
     }).join('');
@@ -791,6 +1016,15 @@ function renderFileItem(f, depth = 0) {
     const drifted = f.is_baseline === false;
     const name = fileName(f.path);
     const dir = fileDir(f.path);
+    const registry = f.registry || {};
+    const roleLabel = registry.semantic_role ? formatRegistryRole(registry.semantic_role) : '';
+    const tierLabel = registry.tier ? `T${registry.tier}` : '';
+    const registryHtml = roleLabel || tierLabel
+        ? `<div class="file-item-role" title="${esc(registry.reasoning || '')}">
+            ${tierLabel ? `<span class="registry-tier tier-${registry.tier}">${esc(tierLabel)}</span>` : ''}
+            ${roleLabel ? `<span>${esc(roleLabel)}</span>` : ''}
+        </div>`
+        : '';
 
     return `
     <div class="file-item tree-file-row${active}${drifted ? ' file-item-drifted' : ''}" style="--depth:${Math.max(depth, 0)}" data-path="${esc(f.path)}" onclick="selectFile('${escAttr(f.path)}', ${f.file_id != null ? Number(f.file_id) : 'null'})">
@@ -798,6 +1032,7 @@ function renderFileItem(f, depth = 0) {
         <div class="file-item-body">
             <div class="file-item-name" title="${esc(f.path)}">${esc(name)}</div>
             <div class="file-item-dir">${esc(dir)}</div>
+            ${registryHtml}
         </div>
         <div class="file-item-meta">
             ${drifted ? '<span class="file-item-drift" title="Drifted from baseline">MODIFIED</span>' : ''}
@@ -945,6 +1180,13 @@ function renderTimeline(data) {
 
     const name = fileName((baseline && baseline.path) || selectedFilePath);
     const dir = fileDir((baseline && baseline.path) || selectedFilePath);
+    const registry = (baseline && baseline.registry) || {};
+    const registryStats = registry && (registry.tier || registry.semantic_role)
+        ? `<span class="tl-stat tl-stat-registry">
+            <span>Registry</span>
+            <strong>${registry.tier ? `Tier ${esc(registry.tier)}` : 'Unclassified'}${registry.semantic_role ? ` / ${esc(formatRegistryRole(registry.semantic_role))}` : ''}</strong>
+        </span>`
+        : '';
     el.timelineHeader.innerHTML = `
         <div class="tl-header-info">
             <h2 class="tl-header-name">${esc(name)}</h2>
@@ -953,6 +1195,7 @@ function renderTimeline(data) {
         <div class="tl-header-stats">
             ${baseline ? `<span class="tl-stat"><strong>${events.length}</strong> events</span>
             <span class="tl-stat">Size: <strong>${baseline.size != null ? fmtSize(baseline.size) : '-'}</strong></span>
+            ${registryStats}
             <span class="tl-stat">Hash: <code>${baseline.hash ? baseline.hash.substring(0, 16) + '...' : '-'}</code></span>` : ''}
         </div>
     `;
@@ -963,6 +1206,7 @@ function renderTimeline(data) {
     }
 
     el.timelineTrack.innerHTML = events.map((ev, idx) => {
+        try {
         const isBaseline = idx === 0 && ev.event_type === 'new' && baseline && baseline.is_baseline;
         const pri = ev.priority || 'pending';
         const dt = new Date(ev.timestamp);
@@ -1007,10 +1251,8 @@ function renderTimeline(data) {
                 <span class="analysis-source ${srcClass}">${src}</span>
             </div>`;
 
-            let reasoningHtml = '';
-            if (a.reasoning) {
-                reasoningHtml = `<div class="analysis-reasoning">${esc(a.reasoning)}</div>`;
-            }
+            const summaryHtml = renderAnalysisSummary(a, ev, verdict);
+            const reasoningHtml = renderTechnicalReasoning(a.reasoning);
 
             let changeHtml = '';
             if (a.change_summary) {
@@ -1026,6 +1268,141 @@ function renderTimeline(data) {
             }
 
             let detailRows = '';
+            const registryDetail = a.registry || ev.registry || {};
+            const memoryStrategies = [];
+
+            if (registryDetail && (registryDetail.semantic_role || registryDetail.tier)) {
+                const role = registryDetail.semantic_role
+                    ? formatRegistryRole(registryDetail.semantic_role)
+                    : 'Unclassified';
+                const tierText = registryDetail.tier
+                    ? `Tier ${registryDetail.tier}${registryDetail.tier_label ? ` ${registryDetail.tier_label}` : ''}`
+                    : 'Unclassified';
+                detailRows += `<div class="analysis-detail-row">
+                    <span class="analysis-detail-label">Registry Role</span>
+                    <span class="analysis-detail-value analysis-registry-value">
+                        <span class="registry-tier tier-${escAttr(registryDetail.tier || 'none')}">${esc(tierText)}</span>
+                        <span>${esc(role)}</span>
+                    </span>
+                </div>`;
+            }
+
+            const memPalace = a.mem_palace || {};
+            if (memPalace && (memPalace.memory_scope || memPalace.platform_context)) {
+                const scope = memPalace.memory_scope || memPalace.semantic_role || 'Context';
+                const platform = memPalace.os_family ? `${memPalace.os_family.toUpperCase()} / ` : '';
+                const agentContent = memPalace.agent_content || {};
+                detailRows += `<div class="analysis-detail-row">
+                    <span class="analysis-detail-label">MemPalace</span>
+                    <span class="analysis-detail-value analysis-mempalace-value" title="${esc(memPalace.platform_context || '')}">
+                        ${esc(platform + scope)}
+                    </span>
+                </div>`;
+                if (agentContent.inspected) {
+                    const agentContentLabel = agentContent.threat_classification || agentContent.threat_type || 'Content inspected';
+                    const agentContentRisk = agentContent.risk_score != null ? `${agentContent.risk_score}/10` : 'n/a';
+                    detailRows += `<div class="analysis-detail-row">
+                        <span class="analysis-detail-label">Agent Content</span>
+                        <span class="analysis-detail-value analysis-mempalace-text">
+                            ${esc(`${agentContentRisk} · ${agentContentLabel}. ${agentContent.summary || ''}`)}
+                        </span>
+                    </div>`;
+                }
+                if (memPalace.change_interpretation) {
+                    detailRows += `<div class="analysis-detail-row">
+                        <span class="analysis-detail-label">Agent View</span>
+                        <span class="analysis-detail-value analysis-mempalace-text">${esc(memPalace.change_interpretation)}</span>
+                    </div>`;
+                }
+                const memoryStatus = memPalace.memory_status || {};
+                const memoryWrite = memPalace.memory_write || {};
+                const relatedMemories = Array.isArray(memPalace.related_memories) ? memPalace.related_memories : [];
+                if (Array.isArray(memoryStatus.retrieval_strategies)) {
+                    memoryStatus.retrieval_strategies.forEach(s => { if (s && !memoryStrategies.includes(s)) memoryStrategies.push(s); });
+                }
+                relatedMemories.forEach(memory => {
+                    const meta = memory && memory.metadata ? memory.metadata : {};
+                    const rawStrategies = meta.retrieval_strategies || meta.retrieval_strategy;
+                    if (Array.isArray(rawStrategies)) {
+                        rawStrategies.forEach(s => { if (s && !memoryStrategies.includes(s)) memoryStrategies.push(s); });
+                    } else if (typeof rawStrategies === 'string') {
+                        rawStrategies.split(',').map(s => s.trim()).filter(Boolean)
+                            .forEach(s => { if (!memoryStrategies.includes(s)) memoryStrategies.push(s); });
+                    }
+                });
+                if (memoryStatus.enabled || memoryWrite.enabled) {
+                    const backend = memoryStatus.backend || memoryWrite.backend || memPalace.external_memory_backend || 'mempalace';
+                    const searchState = memoryStatus.searched
+                        ? `${memoryStatus.hits || 0} hit${Number(memoryStatus.hits || 0) === 1 ? '' : 's'}`
+                        : (memoryStatus.error ? 'search unavailable' : 'search ready');
+                    const writeState = memoryWrite.stored
+                        ? 'stored'
+                        : (memoryWrite.error ? 'write unavailable' : (memoryWrite.reason ? 'not stored' : 'write ready'));
+                    detailRows += `<div class="analysis-detail-row">
+                        <span class="analysis-detail-label">Memory Backend</span>
+                        <span class="analysis-detail-value analysis-mempalace-text">
+                            ${esc(`${backend} · ${searchState} · ${writeState}`)}
+                        </span>
+                    </div>`;
+                }
+                if (memoryStrategies.length > 0) {
+                    detailRows += `<div class="analysis-detail-row">
+                        <span class="analysis-detail-label">Memory Evidence</span>
+                        <span class="analysis-detail-value analysis-mempalace-text">
+                            ${esc(memoryStrategies.slice(0, 5).map(formatMemoryStrategy).join(' · '))}
+                        </span>
+                    </div>`;
+                }
+                if (relatedMemories.length > 0) {
+                    const firstMemory = relatedMemories[0] || {};
+                    const firstMeta = firstMemory.metadata || {};
+                    const source = firstMeta.source_file || firstMeta.file_path || firstMemory.id || 'prior event';
+                    const closestStrategy = firstMeta.retrieval_strategy
+                        ? ` via ${formatMemoryStrategy(firstMeta.retrieval_strategy)}`
+                        : '';
+                    detailRows += `<div class="analysis-detail-row">
+                        <span class="analysis-detail-label">Related Memory</span>
+                        <span class="analysis-detail-value analysis-mempalace-text">
+                            ${esc(`${relatedMemories.length} related memory record${relatedMemories.length === 1 ? '' : 's'}; closest${closestStrategy}: ${source}`)}
+                        </span>
+                    </div>`;
+                }
+            }
+
+            const agentInvestigation = a.agent_investigation || {};
+            let investigationDrawerHtml = '';
+            if (agentInvestigation.ran) {
+                const agentNotification = a.agent_notification || {};
+                const trusted = agentInvestigation.trusted_change || 'unknown';
+                const confidence = agentInvestigation.confidence || 'medium';
+                const tools = Array.isArray(agentInvestigation.tools_used)
+                    ? agentInvestigation.tools_used.length
+                    : 0;
+                const summary = agentNotification.summary
+                    || agentInvestigation.notification_summary
+                    || agentInvestigation.reason
+                    || 'Agent investigation completed.';
+                detailRows += `<div class="analysis-detail-row">
+                    <span class="analysis-detail-label">Agent Investigation</span>
+                    <span class="analysis-detail-value analysis-mempalace-text">
+                        ${esc(`${tools} tool${tools === 1 ? '' : 's'} · ${summary}`)}
+                    </span>
+                </div>`;
+                detailRows += `<div class="analysis-detail-row">
+                    <span class="analysis-detail-label">Trusted Change</span>
+                    <span class="analysis-detail-value analysis-mempalace-text">
+                        ${esc(`${trusted.replace(/_/g, ' ')} · ${confidence} confidence`)}
+                    </span>
+                </div>`;
+                investigationDrawerHtml = renderInvestigationDrawer({
+                    investigation: agentInvestigation,
+                    notification: agentNotification,
+                    event: ev,
+                    eventIndex: idx,
+                    analysis: a,
+                    memoryStrategies
+                });
+            }
 
             if (a.threat_type && a.threat_type !== 'benign') {
                 detailRows += `<div class="analysis-detail-row">
@@ -1094,10 +1471,10 @@ function renderTimeline(data) {
 
             const maliciousBorder = a.is_malicious ? ' analysis-malicious' : '';
             analysisHtml = `<div class="tl-analysis tl-analysis-rich${maliciousBorder}">
-                ${headerHtml}${changeHtml}${reasoningHtml}${detailsHtml}${actionsHtml}${findingsHtml}
+                ${headerHtml}${changeHtml}${summaryHtml}${detailsHtml}${investigationDrawerHtml}${actionsHtml}${findingsHtml}${reasoningHtml}
             </div>`;
         } else if (ev.analysis && typeof ev.analysis === 'string') {
-            analysisHtml = `<div class="tl-analysis tl-analysis-rich"><div class="analysis-reasoning">${esc(ev.analysis)}</div></div>`;
+            analysisHtml = `<div class="tl-analysis tl-analysis-rich">${renderTechnicalReasoning(ev.analysis, true)}</div>`;
         } else if (ev.status === 'pending') {
             analysisHtml = '<div class="tl-analysis tl-analysis-pending"><span class="spinner"></span> Analysis pending...</div>';
         }
@@ -1126,7 +1503,248 @@ function renderTimeline(data) {
                 </div>
             </div>
         </div>`;
+        } catch (error) {
+            console.error('Timeline event render error', error, ev);
+            return renderTimelineEventFallback(ev, idx, events.length);
+        }
     }).join('');
+}
+
+function renderTimelineEventFallback(ev, idx, totalEvents) {
+    const pri = ev.priority || 'pending';
+    const dt = ev.timestamp ? new Date(ev.timestamp) : null;
+    const time = dt && !Number.isNaN(dt.getTime())
+        ? dt.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })
+        : 'Time unavailable';
+    const analysis = ev.analysis && typeof ev.analysis === 'object' ? ev.analysis : {};
+    const title = analysis.threat_classification || analysis.classification || analysis.threat_type || 'Analysis available';
+    const reasoning = analysis.reasoning || ev.details || 'This event was recorded, but one analysis field could not be rendered.';
+    const fallbackAnalysis = Object.keys(analysis).length
+        ? analysis
+        : {
+            reasoning,
+            priority: pri,
+            risk_score: ev.risk_score,
+            threat_classification: title
+        };
+    const fallbackVerdict = analysisVerdict(fallbackAnalysis, ev);
+    const summaryHtml = renderAnalysisSummary(fallbackAnalysis, ev, fallbackVerdict);
+    const reasoningHtml = renderTechnicalReasoning(reasoning);
+
+    return `
+        <div class="tl-node tl-node-${escAttr(pri)}">
+            <div class="tl-node-dot">
+                <div class="tl-dot tl-dot-${escAttr(pri)}"></div>
+                ${idx < totalEvents - 1 ? '<div class="tl-connector"></div>' : ''}
+            </div>
+            <div class="tl-node-card">
+                <div class="tl-node-top">
+                    <span class="badge badge-${escAttr(ev.event_type || 'event')}">${esc((ev.event_type || 'event').toUpperCase())}</span>
+                    <span class="badge badge-priority badge-p-${escAttr(pri)}">${esc(pri.toUpperCase())}</span>
+                    <span class="tl-node-time">${esc(time)}</span>
+                </div>
+                <div class="tl-analysis tl-analysis-rich ${pri === 'critical' ? 'analysis-malicious' : ''}">
+                    <div class="analysis-header">
+                        <div class="analysis-title-block">
+                            <span class="analysis-verdict ${fallbackVerdict.className}">${esc(fallbackVerdict.label)}</span>
+                            <span class="analysis-classification">${esc(title)}</span>
+                        </div>
+                        <span class="analysis-source src-heuristic">Recovered</span>
+                    </div>
+                    ${summaryHtml}${reasoningHtml}
+                </div>
+            </div>
+        </div>`;
+}
+
+function renderInvestigationDrawer({ investigation, notification, event, eventIndex, analysis, memoryStrategies }) {
+    const key = investigationDrawerKey(event, eventIndex);
+    const domKey = simpleHash(key);
+    const drawerId = `agent-investigation-${domKey}`;
+    const open = openInvestigationDrawers.has(key);
+    const observations = Array.isArray(investigation.observations) ? investigation.observations : [];
+    const actions = Array.isArray(investigation.recommended_actions) && investigation.recommended_actions.length
+        ? investigation.recommended_actions
+        : (Array.isArray(analysis.recommended_actions) ? analysis.recommended_actions : []);
+    const summary = notification.summary || investigation.notification_summary || investigation.reason || 'Agent investigation completed.';
+    const trustObservation = observations.find(obs => obs.tool === 'trusted_change_context') || {};
+    const trustEvidence = trustObservation.details && Array.isArray(trustObservation.details.evidence)
+        ? trustObservation.details.evidence
+        : [];
+    const memoryObservation = observations.find(obs => obs.tool === 'mempalace_related_memory_search') || {};
+    const memoryDetails = memoryObservation.details || {};
+    const strategies = uniqueList([
+        ...(Array.isArray(memoryStrategies) ? memoryStrategies : []),
+        ...(Array.isArray(memoryDetails.retrieval_strategies) ? memoryDetails.retrieval_strategies : [])
+    ]);
+    const observationHtml = observations.length
+        ? observations.map(renderAgentObservation).join('')
+        : '<div class="agent-drawer-empty">No tool observations recorded</div>';
+    const trustHtml = trustEvidence.length
+        ? trustEvidence.slice(0, 5).map(renderTrustEvidenceItem).join('')
+        : '<div class="agent-drawer-empty">No trusted-change evidence matched this event</div>';
+    const strategyHtml = strategies.length
+        ? strategies.slice(0, 6).map(s => `<span class="agent-drawer-chip">${esc(formatMemoryStrategy(s))}</span>`).join('')
+        : '<span class="agent-drawer-muted">No related memory strategy matched</span>';
+    const actionHtml = actions.length
+        ? actions.slice(0, 6).map(action => `<li>${esc(action)}</li>`).join('')
+        : '<li>Review the event in the timeline.</li>';
+
+    return `<section class="agent-drawer-wrap" onclick="event.stopPropagation()">
+        <button type="button"
+            class="agent-drawer-toggle"
+            data-drawer-key="${escAttr(domKey)}"
+            aria-expanded="${open ? 'true' : 'false'}"
+            aria-controls="${escAttr(drawerId)}"
+            onclick="toggleInvestigationDrawer(event, '${escAttr(key)}')">
+            <span class="agent-drawer-toggle-main">
+                <span class="agent-drawer-kicker">Agent Investigation</span>
+                <span class="agent-drawer-title">${esc(investigation.notification_title || notification.title || 'Investigation Evidence')}</span>
+            </span>
+            <span class="agent-drawer-toggle-meta">
+                <span>${esc((investigation.trusted_change || 'unknown').replace(/_/g, ' '))}</span>
+                <span>${esc(investigation.confidence || 'medium')} confidence</span>
+                <span class="agent-drawer-chevron">${open ? 'Hide' : 'View'}</span>
+            </span>
+        </button>
+        <div class="agent-drawer" id="${escAttr(drawerId)}" data-drawer-panel="${escAttr(domKey)}" ${open ? '' : 'hidden'}>
+            <div class="agent-drawer-summary">${esc(summary)}</div>
+            <div class="agent-drawer-grid">
+                <section class="agent-drawer-section">
+                    <div class="agent-drawer-section-title">Tool Observations</div>
+                    <div class="agent-observation-list">${observationHtml}</div>
+                </section>
+                <section class="agent-drawer-section">
+                    <div class="agent-drawer-section-title">Trusted Change Evidence</div>
+                    <div class="agent-trust-list">${trustHtml}</div>
+                </section>
+            </div>
+            <div class="agent-drawer-row">
+                <span class="agent-drawer-row-label">Memory Retrieval</span>
+                <span class="agent-drawer-chipline">${strategyHtml}</span>
+            </div>
+            <div class="agent-drawer-row">
+                <span class="agent-drawer-row-label">Next Actions</span>
+                <ul class="agent-drawer-actions">${actionHtml}</ul>
+            </div>
+        </div>
+    </section>`;
+}
+
+function renderAgentObservation(obs) {
+    const status = (obs.status || 'unknown').toLowerCase();
+    const tool = formatToolName(obs.tool || 'tool');
+    const details = observationDetailChips(obs);
+    return `<div class="agent-observation obs-${escAttr(status)}">
+        <span class="agent-observation-status">${esc(status.toUpperCase())}</span>
+        <span class="agent-observation-body">
+            <span class="agent-observation-title">${esc(tool)}</span>
+            <span class="agent-observation-summary">${esc(obs.summary || 'Observation recorded')}</span>
+            ${details ? `<span class="agent-observation-chips">${details}</span>` : ''}
+        </span>
+    </div>`;
+}
+
+function renderTrustEvidenceItem(item) {
+    const status = (item.status || 'unknown').toLowerCase();
+    const source = item.source || item.category || 'evidence';
+    const confidence = item.confidence ? `${item.confidence} confidence` : '';
+    return `<div class="agent-trust-item trust-${escAttr(status)}">
+        <span class="agent-trust-status">${esc(status.toUpperCase())}</span>
+        <span class="agent-trust-body">
+            <span class="agent-trust-source">${esc(source)}</span>
+            <span class="agent-trust-summary">${esc(item.summary || item.category || 'Trusted-change signal')}</span>
+            ${confidence ? `<span class="agent-trust-confidence">${esc(confidence)}</span>` : ''}
+        </span>
+    </div>`;
+}
+
+function observationDetailChips(obs) {
+    const details = obs && obs.details ? obs.details : {};
+    const chips = [];
+    if (details.hash_state) chips.push(`Hash: ${details.hash_state}`);
+    if (details.size != null) chips.push(`Size: ${fmtSize(details.size)}`);
+    if (details.risk_score != null) chips.push(`Risk: ${details.risk_score}/10`);
+    if (details.threat_type) chips.push(`Type: ${String(details.threat_type).replace(/_/g, ' ')}`);
+    if (details.hits != null) chips.push(`Hits: ${details.hits}`);
+    if (Array.isArray(details.matched_sources) && details.matched_sources.length) {
+        chips.push(`Matched: ${details.matched_sources.slice(0, 2).join(', ')}`);
+    }
+    if (Array.isArray(details.expected_change_sources) && details.expected_change_sources.length) {
+        chips.push(`Expected: ${details.expected_change_sources.slice(0, 2).join(', ')}`);
+    }
+    if (details.Status || details.status) chips.push(`Signature: ${details.Status || details.status}`);
+    if (details.Signer || details.signer) chips.push(`Signer: ${String(details.Signer || details.signer).slice(0, 42)}`);
+    if (Array.isArray(details.retrieval_strategies) && details.retrieval_strategies.length) {
+        chips.push(`Memory: ${details.retrieval_strategies.slice(0, 2).map(formatMemoryStrategy).join(', ')}`);
+    }
+    return chips.slice(0, 5)
+        .map(chip => `<span class="agent-drawer-chip">${esc(chip)}</span>`)
+        .join('');
+}
+
+function toggleInvestigationDrawer(domEvent, key) {
+    if (domEvent) domEvent.stopPropagation();
+    if (openInvestigationDrawers.has(key)) {
+        openInvestigationDrawers.delete(key);
+    } else {
+        openInvestigationDrawers.add(key);
+    }
+    const open = openInvestigationDrawers.has(key);
+    const domKey = simpleHash(key);
+    document.querySelectorAll(`[data-drawer-panel="${cssEscape(domKey)}"]`).forEach(panel => {
+        panel.hidden = !open;
+    });
+    document.querySelectorAll(`[data-drawer-key="${cssEscape(domKey)}"]`).forEach(button => {
+        button.setAttribute('aria-expanded', open ? 'true' : 'false');
+        const chevron = button.querySelector('.agent-drawer-chevron');
+        if (chevron) chevron.textContent = open ? 'Hide' : 'View';
+    });
+}
+
+function investigationDrawerKey(event, idx) {
+    return [
+        selectedFileId || selectedFilePath || 'file',
+        event.id || event.event_id || event.log_id || event.timestamp || idx,
+        event.event_type || 'event',
+        idx
+    ].join('|');
+}
+
+function formatToolName(tool) {
+    const labels = {
+        current_file_state: 'Current File State',
+        trusted_change_context: 'Trusted Change Context',
+        agent_content_inspection: 'Agent Content Inspection',
+        mempalace_related_memory_search: 'MemPalace Related Memory',
+        windows_authenticode_signature: 'Windows Signature'
+    };
+    return labels[tool] || formatRegistryRole(tool);
+}
+
+function uniqueList(items) {
+    const values = [];
+    (items || []).forEach(item => {
+        if (item && !values.includes(item)) values.push(item);
+    });
+    return values;
+}
+
+function cssEscape(value) {
+    if (window.CSS && typeof window.CSS.escape === 'function') {
+        return window.CSS.escape(String(value));
+    }
+    return String(value).replace(/["\\]/g, '\\$&');
+}
+
+function simpleHash(value) {
+    let hash = 0;
+    const text = String(value || '');
+    for (let i = 0; i < text.length; i += 1) {
+        hash = ((hash << 5) - hash) + text.charCodeAt(i);
+        hash |= 0;
+    }
+    return Math.abs(hash).toString(36);
 }
 
 function analysisSourceMeta(source, baselineContext = false) {
@@ -1134,11 +1752,20 @@ function analysisSourceMeta(source, baselineContext = false) {
     if (baselineContext || normalized === 'baseline') {
         return { label: 'Baseline', className: 'src-baseline' };
     }
-    if (['llm', 'ollama', 'gemini'].includes(normalized)) {
+    if (normalized.includes('mempalace_agent')) {
+        return { label: 'MemPalace', className: 'src-mempalace' };
+    }
+    if (normalized.includes('registry_agent')) {
+        return { label: 'Registry', className: 'src-registry' };
+    }
+    if (['llm', 'ollama', 'gemini'].some(s => normalized.includes(s))) {
         return { label: 'Model', className: 'src-llm' };
     }
-    if (normalized === 'heuristic') {
+    if (normalized.includes('heuristic')) {
         return { label: 'Rules', className: 'src-heuristic' };
+    }
+    if (normalized === 'hash_first') {
+        return { label: 'Hash Baseline', className: 'src-baseline' };
     }
     return { label: 'Analysis', className: 'src-heuristic' };
 }
@@ -1155,6 +1782,153 @@ function analysisVerdict(analysis, event) {
         return { label: 'Baseline logged', className: 'verdict-logged' };
     }
     return { label: 'Logged', className: 'verdict-logged' };
+}
+
+function renderAnalysisSummary(analysis, event, verdict) {
+    const items = buildAnalysisSummaryItems(analysis, event, verdict);
+    if (!items.length) return '';
+    const itemHtml = items.slice(0, 5)
+        .map(item => `<li>${esc(item)}</li>`)
+        .join('');
+    return `<section class="analysis-summary-panel" aria-label="Analyst summary">
+        <div class="analysis-section-label">Analyst Summary</div>
+        <ul class="analysis-summary-list">${itemHtml}</ul>
+    </section>`;
+}
+
+function buildAnalysisSummaryItems(analysis, event, verdict) {
+    const items = [];
+    const add = value => {
+        const text = cleanAnalysisSentence(value);
+        if (!text) return;
+        const key = analysisSentenceKey(text);
+        if (items.some(item => analysisSentenceKey(item) === key)) return;
+        items.push(text);
+    };
+
+    const memPalace = analysis.mem_palace && typeof analysis.mem_palace === 'object'
+        ? analysis.mem_palace
+        : {};
+    const agentContent = memPalace.agent_content && typeof memPalace.agent_content === 'object'
+        ? memPalace.agent_content
+        : {};
+    const registry = analysis.registry || event.registry || {};
+    const notification = analysis.agent_notification && typeof analysis.agent_notification === 'object'
+        ? analysis.agent_notification
+        : {};
+
+    add(notification.summary);
+    add(memPalace.change_interpretation);
+    add(memPalace.identity_summary);
+
+    if (!memPalace.identity_summary && (registry.semantic_role || registry.tier)) {
+        const tier = registry.tier ? `Tier ${registry.tier}` : 'Unclassified';
+        const role = registry.semantic_role ? formatRegistryRole(registry.semantic_role) : 'General file';
+        add(`${tier} asset classified as ${role}. ${registry.reasoning || ''}`);
+    }
+
+    if (agentContent.inspected && agentContent.summary) {
+        add(agentContent.summary);
+    }
+
+    const score = Number(analysis.risk_score ?? event.risk_score);
+    const priority = String(analysis.priority || event.priority || '').toUpperCase();
+    if (Number.isFinite(score) && priority) {
+        add(`Final verdict: ${priority} priority with risk ${score}/10.`);
+    } else if (verdict && verdict.label) {
+        add(`Final verdict: ${verdict.label}.`);
+    }
+
+    const findings = Array.isArray(analysis.findings) ? analysis.findings : [];
+    if (findings.length) {
+        const strongest = findings
+            .slice()
+            .sort((a, b) => Number(b.severity || 0) - Number(a.severity || 0))[0] || {};
+        const description = strongest.description || formatRegistryRole(strongest.category || 'indicator');
+        const severity = strongest.severity != null ? ` (${strongest.severity}/10)` : '';
+        add(`${findings.length} indicator${findings.length === 1 ? '' : 's'} matched; strongest signal: ${description}${severity}.`);
+    }
+
+    const related = Array.isArray(memPalace.related_memories) ? memPalace.related_memories : [];
+    if (related.length) {
+        const meta = related[0] && related[0].metadata ? related[0].metadata : {};
+        const source = meta.source_file || meta.file_path || related[0].id || 'prior event';
+        add(`MemPalace found ${related.length} related memory record${related.length === 1 ? '' : 's'}; closest context: ${source}.`);
+    }
+
+    if (!items.length && analysis.reasoning) {
+        compactReasoningItems(analysis.reasoning).slice(0, 3).forEach(add);
+    }
+    return items;
+}
+
+function renderTechnicalReasoning(reasoning, open = false) {
+    const items = compactReasoningItems(reasoning);
+    if (!items.length) return '';
+    const body = items.length > 1
+        ? `<ul>${items.slice(0, 10).map(item => `<li>${esc(item)}</li>`).join('')}</ul>`
+        : `<p>${esc(items[0])}</p>`;
+    return `<details class="analysis-technical-reasoning" ${open ? 'open' : ''} onclick="event.stopPropagation()">
+        <summary>Technical reasoning</summary>
+        ${body}
+    </details>`;
+}
+
+function compactReasoningItems(reasoning) {
+    const normalized = String(reasoning || '').replace(/\s+/g, ' ').trim();
+    if (!normalized) return [];
+    const sentences = normalized.match(/[^.!?]+(?:[.!?]+(?=\s|$)|$)/g) || [normalized];
+    const items = [];
+    const seen = new Set();
+    sentences.forEach(sentence => {
+        const text = cleanAnalysisSentence(sentence);
+        const key = analysisSentenceKey(text);
+        if (!text || seen.has(key)) return;
+        seen.add(key);
+        items.push(text);
+    });
+    return items;
+}
+
+function cleanAnalysisSentence(value) {
+    let text = String(value || '').replace(/\s+/g, ' ').trim();
+    text = text.replace(/^[-•]\s*/, '');
+    text = text.replace(
+        /^(Pipeline content verdict reconciled by MemPalace|Content analysis result|MemPalace context):\s*/i,
+        ''
+    );
+    return text.trim();
+}
+
+function analysisSentenceKey(value) {
+    return String(value || '')
+        .replace(/^[-•]\s*/, '')
+        .replace(
+            /^(Pipeline content verdict reconciled by MemPalace|Content analysis result|MemPalace context):\s*/i,
+            ''
+        )
+        .replace(/[.!?]+$/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .toLowerCase();
+}
+
+function formatRegistryRole(role) {
+    return String(role || '')
+        .replace(/_/g, ' ')
+        .replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function formatMemoryStrategy(strategy) {
+    const labels = {
+        exact_path: 'Exact path',
+        path_history: 'Path history',
+        role_tier: 'Role and tier',
+        previous_verdict: 'Previous verdict',
+        content_indicators: 'Content indicators',
+        lexical: 'Lexical fallback'
+    };
+    return labels[strategy] || formatRegistryRole(strategy);
 }
 
 /* --- Actions -------------------------------- */
@@ -1371,12 +2145,12 @@ function fmtDuration(seconds) {
 }
 
 function esc(t) {
-    if (!t) return '';
+    if (t == null || t === false) return '';
     const d = document.createElement('div');
-    d.textContent = t;
+    d.textContent = String(t);
     return d.innerHTML;
 }
 
 function escAttr(t) {
-    return (t || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    return String(t ?? '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 }

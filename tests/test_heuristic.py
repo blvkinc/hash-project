@@ -4,9 +4,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from core.llm_analyzer import _fallback_analysis
 
-# ═══════════════════════════════════════════════════════════
 #  Test Cases
-# ═══════════════════════════════════════════════════════════
 
 tests = [
     ("OpenSSL reverse shell (user test case)", "test.txt", "modified",
@@ -53,9 +51,7 @@ tests = [
 ]
 
 
-# ═══════════════════════════════════════════════════════════
 #  Run tests and validate structure
-# ═══════════════════════════════════════════════════════════
 
 print("=" * 80)
 print("HEURISTIC ENGINE TESTS -- Structured Output Validation")
@@ -88,9 +84,7 @@ for label, path, change, content in tests:
             ALL_PASS = False
 
 
-# ═══════════════════════════════════════════════════════════
 #  Specific assertion tests
-# ═══════════════════════════════════════════════════════════
 
 print("\n" + "=" * 80)
 print("SPECIFIC ASSERTIONS")

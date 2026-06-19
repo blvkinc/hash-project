@@ -1,5 +1,5 @@
 """
-harness.py — isolated test bed for the FIM analysis pipeline.
+harness.py  -  isolated test bed for the FIM analysis pipeline.
 
 Provides a single class (`EvalHarness`) that:
   - sets up an isolated sqlite DB in a temp directory,
@@ -92,7 +92,7 @@ class EvalHarness:
         _db.DATABASE_URL = f"sqlite:///{self._tmp / 'eval.db'}"
         _db.init_db()
 
-        # Late imports — they pick up the patched SessionLocal.
+        # Late imports  -  they pick up the patched SessionLocal.
         from core import scanner, background_analysis
         scanner.SessionLocal = _db.SessionLocal
         background_analysis.SessionLocal = _db.SessionLocal
@@ -104,7 +104,7 @@ class EvalHarness:
         self._ba.dispatcher = NotificationDispatcher()
         self._dispatcher = self._ba.dispatcher
 
-    # ── Lifecycle ─────────────────────────────────────────
+    # Lifecycle
 
     def __enter__(self) -> "EvalHarness":
         return self
@@ -118,7 +118,7 @@ class EvalHarness:
         except OSError:
             pass
 
-    # ── Operations ────────────────────────────────────────
+    # Operations
 
     def write(self, relpath: str, content: str) -> Path:
         """Write a file under the work dir."""
@@ -143,7 +143,7 @@ class EvalHarness:
         self._ba.update_monitor_state(True, [str(self.workdir)])
         return self._ba.process_pending_analysis(batch_size=batch_size)
 
-    # ── Inspection ────────────────────────────────────────
+    # Inspection
 
     def snapshot(self) -> HarnessResult:
         from core.models import FileLog

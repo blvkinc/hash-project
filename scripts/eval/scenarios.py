@@ -1,15 +1,15 @@
 """
-scenarios.py — controlled change-sets that exercise the analysis pipeline.
+scenarios.py  -  controlled change-sets that exercise the analysis pipeline.
 
 Each scenario is a function `run(harness) -> tuple[int_truly_malicious]`
 that mutates the harness work dir and returns how many of the changes
 should be treated as genuinely malicious (used to compute TPR/FNR).
 
 Scenarios:
-  legit_bulk_modify   — many benign edits (mimics an apt upgrade noise floor)
-  manual_config_edit  — single ambiguous config change (mid-priority)
-  adversarial_drops   — known-bad payloads dropped (reverse shell, persistence)
-  mixed_realistic     — most edits benign, two malicious hidden among them
+  legit_bulk_modify    -  many benign edits (mimics an apt upgrade noise floor)
+  manual_config_edit   -  single ambiguous config change (mid-priority)
+  adversarial_drops    -  known-bad payloads dropped (reverse shell, persistence)
+  mixed_realistic      -  most edits benign, two malicious hidden among them
 """
 from __future__ import annotations
 
