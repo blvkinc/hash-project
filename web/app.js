@@ -1,8 +1,4 @@
-﻿/* =======================================
-   IntegrityGuard - Frontend Application
-   Timeline view, baseline tracking,
-   per-file change history with automated analysis
-   ======================================= */
+﻿/* IntegrityGuard frontend application. */
 
 const API = window.location.origin + '/api';
 let currentFilter = 'all';
@@ -26,7 +22,7 @@ let openInvestigationDrawers = new Set();
 let agentActivity = null;
 let agentPanelOpen = false;
 
-/* --- DOM Refs -------------------------------- */
+// DOM references.
 const $ = id => document.getElementById(id);
 
 const el = {
@@ -96,7 +92,7 @@ const el = {
     timelineTrack: $('timelineTrack'),
 };
 
-/* --- Boot ------------------------------------ */
+// Boot.
 document.addEventListener('DOMContentLoaded', () => {
     initNotificationCenter();
     initNotificationPolicy();
@@ -258,7 +254,7 @@ function renderScanMetrics(scan) {
         .join('');
 }
 
-/* --- Stats ----------------------------------- */
+// Stats.
 async function fetchStats() {
     try {
         const r = await fetch(`${API}/stats`);
@@ -299,7 +295,7 @@ function setQueueMeter(count) {
         : String(safeCount).padStart(2, '0');
 }
 
-/* --- Agent View ----------------------------- */
+// Agent view.
 async function fetchAgentActivity() {
     if (!el.agentActivityList) return;
     try {
@@ -467,7 +463,7 @@ function bump(node, val) {
     }, 180);
 }
 
-/* --- Watcher Status -------------------------- */
+// Watcher status.
 async function fetchWatcherStatus() {
     try {
         const r = await fetch(`${API}/watch/status`);
@@ -585,7 +581,7 @@ async function stopWatcherForPath(path) {
     }
 }
 
-/* --- Alerts ---------------------------------- */
+// Alerts.
 async function fetchPriorityAlerts() {
     try {
         const r = await fetch(`${API}/logs?limit=40`);
@@ -770,7 +766,7 @@ async function requestDesktopNotifications() {
     );
 }
 
-/* --- Baseline / File Tree -------------------- */
+// Baseline and file tree.
 async function fetchBaseline() {
     try {
         const r = await fetch(`${API}/baseline`);
@@ -1155,7 +1151,7 @@ function showTimelineEmpty(title = 'No file selected', message = 'Scan results w
     if (messageNode) messageNode.textContent = message;
 }
 
-/* --- File Timeline -------------------------- */
+// File timeline.
 async function fetchFileTimeline(path, fileId = null) {
     try {
         const params = new URLSearchParams();
@@ -1931,7 +1927,7 @@ function formatMemoryStrategy(strategy) {
     return labels[strategy] || formatRegistryRole(strategy);
 }
 
-/* --- Actions -------------------------------- */
+// Actions.
 async function triggerScan() {
     const path = el.scanPath.value.trim();
     if (!path) {
@@ -2011,7 +2007,7 @@ async function stopWatcher() {
     }
 }
 
-/* --- Toast Alerts --------------------------- */
+// Toast alerts.
 function toast(msg, cls = 'toast-success') {
     const t = document.createElement('div');
     t.className = `toast ${cls}`;
@@ -2022,7 +2018,7 @@ function toast(msg, cls = 'toast-success') {
     }, 5000);
 }
 
-/* --- Helpers -------------------------------- */
+// Helpers.
 async function parseApiPayload(response) {
     const raw = await response.text();
     if (!raw) return {};

@@ -1,11 +1,14 @@
-"""Test the heuristic engine against the exact C/Win32 reverse shell the user tested."""
-import sys, os
+"""Heuristic coverage for a C/Win32 shell indicator fixture."""
+
+import os
+import sys
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from core.llm_analyzer import _fallback_analysis
 
-# The exact payload the user put in their test file
-c_reverse_shell = r"""
+
+C_WIN32_SHELL_FIXTURE = r"""
 #include <winsock2.h>
 #include <stdio.h>
 #pragma comment(lib,"ws2_32")
@@ -46,12 +49,12 @@ int main()
 }
 """
 
-r = _fallback_analysis("test.txt", "modified", c_reverse_shell)
-print(f"Priority:  {r['priority'].upper()}")
-print(f"Score:     {r['risk_score']}")
-print(f"Malicious: {r['is_malicious']}")
-print(f"Reasoning: {r['reasoning']}")
-print()
-print("All findings:")
-for f in r.get('findings', []):
-    print(f"  [{f['severity']:2d}] {f['category']:20s} - {f['description']}")
+
+def test_c_win32_shell_fixture_is_detected():
+    result = _fallback_analysis("test.txt", "modified", C_WIN32_SHELL_FIXTURE)
+    categories = {finding["category"] for finding in result.get("findings", [])}
+
+    assert result["priority"] in {"critical", "high"}
+    assert result["risk_score"] >= 8
+    assert result["is_malicious"] is True
+    assert "reverse_shell" in categories

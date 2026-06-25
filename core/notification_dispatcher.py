@@ -206,16 +206,12 @@ def _format_digest_body(events: List[Dict[str, Any]], escalated: bool) -> str:
     return "\n".join(lines)
 
 
-# Configuration
-
 class NotificationConfig:
     """Runtime notification settings that can be updated through the API."""
 
     def __init__(self):
-        # Desktop notifications
         self.desktop_enabled: bool = settings.desktop_notifications_enabled
 
-        # Email notifications
         self.email_enabled: bool = settings.email_enabled
         self.smtp_host: str = settings.smtp_host
         self.smtp_port: int = settings.smtp_port
@@ -224,12 +220,10 @@ class NotificationConfig:
         self.email_from: str = settings.email_from
         self.email_to: str = settings.email_to
 
-        # Batching
         self.batch_interval_seconds: int = settings.batch_interval_seconds
 
-        # Escalation
-        self.escalation_threshold: int = 3          # N medium events ...
-        self.escalation_window_seconds: int = 300   # ... within this window
+        self.escalation_threshold: int = 3
+        self.escalation_window_seconds: int = 300
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -257,29 +251,25 @@ class NotificationConfig:
                 setattr(self, key, data[key])
 
 
-#  Desktop Notification Helper
-
 def _send_desktop_notification(title: str, message: str) -> bool:
     """Send a cross-platform desktop notification via plyer."""
     try:
         from plyer import notification as plyer_notification
         plyer_notification.notify(
             title=title,
-            message=message[:256],   # some backends limit length
-            app_name="Hash Monitor",
+            message=message[:256],
+            app_name="IntegrityGuard",
             timeout=10,
         )
         logger.info(f"Desktop notification sent: {title}")
         return True
     except ImportError:
-        logger.warning("plyer not installed  -  desktop notifications unavailable.")
+        logger.warning("plyer not installed; desktop notifications unavailable.")
         return False
     except Exception as e:
         logger.error(f"Desktop notification failed: {e}")
         return False
 
-
-#  Email Notification Helper
 
 def _send_email_notification(
     subject: str,
@@ -290,7 +280,7 @@ def _send_email_notification(
     if not config.email_enabled:
         return False
     if not config.smtp_host or not config.email_to:
-        logger.warning("Email not configured  -  skipping email notification.")
+        logger.warning("Email not configured; skipping email notification.")
         return False
 
     try:
@@ -315,36 +305,20 @@ def _send_email_notification(
         return False
 
 
-#  Notification Dispatcher
-
 class NotificationDispatcher:
-    """
-    Central dispatcher that receives analysed FileLog events and routes
-    them to the correct notification channel.
-
-    Usage:
-        dispatcher = NotificationDispatcher()
-        dispatcher.enqueue(event_dict)   # called from background_analysis
-        # In a separate thread:
-        dispatcher.dispatch_loop()
-    """
+    """Route analysed FileLog events to the configured notification channel."""
 
     def __init__(self, config: Optional[NotificationConfig] = None):
         self.config = config or NotificationConfig()
 
-        # Batch queue for medium-severity events
         self._batch_queue: List[Dict[str, Any]] = []
         self._batch_lock = threading.Lock()
         self._last_batch_dispatch = time.time()
 
-        # Recent medium events for escalation detection
         self._recent_medium: Deque[float] = deque()
 
-        # Dispatch history
         self._history: Deque[Dict[str, Any]] = deque(maxlen=200)
         self._history_lock = threading.Lock()
-
-    # Public API
 
     def enqueue(self, event: Dict[str, Any]):
         """
@@ -364,7 +338,6 @@ class NotificationDispatcher:
             self._handle_batched(event)
 
         else:
-            # Low and info events are already recorded in the database.
             self._record_history(event, "silent_log")
 
     def get_config(self) -> Dict[str, Any]:
@@ -377,8 +350,6 @@ class NotificationDispatcher:
         with self._history_lock:
             items = list(self._history)
         return items[-limit:]
-
-    # Immediate alerts
 
     def _handle_immediate(self, event: Dict[str, Any]):
         """Dispatch an immediate desktop + email alert."""
@@ -409,7 +380,7 @@ class NotificationDispatcher:
         if self.config.email_enabled:
             _send_email_notification(
                 subject=(
-                    f"[{severity}][Hash Monitor] {priority.upper()} "
+                    f"[{severity}][IntegrityGuard] {priority.upper()} "
                     f"{event.get('event_type', 'change')} - {os.path.basename(path)}"
                 ),
                 body=body,
@@ -419,8 +390,6 @@ class NotificationDispatcher:
         self._record_history(event, "immediate")
         logger.info(f"Immediate alert dispatched: {path} ({priority})")
 
-    # Batched digests
-
     def _handle_batched(self, event: Dict[str, Any]):
         """Add event to the batch queue, check for escalation."""
         now = time.time()
@@ -428,14 +397,11 @@ class NotificationDispatcher:
         with self._batch_lock:
             self._batch_queue.append(event)
 
-        # Track for escalation
         self._recent_medium.append(now)
-        # Purge entries outside the window
         cutoff = now - self.config.escalation_window_seconds
         while self._recent_medium and self._recent_medium[0] < cutoff:
             self._recent_medium.popleft()
 
-        # Escalation check
         if len(self._recent_medium) >= self.config.escalation_threshold:
             logger.warning(
                 f"Escalation triggered: {len(self._recent_medium)} medium events "
@@ -454,7 +420,6 @@ class NotificationDispatcher:
 
         self._last_batch_dispatch = time.time()
 
-        # Build digest body
         lines = []
         if escalated:
             lines.append("ESCALATED - multiple medium-severity changes detected in a short window.\n")
@@ -476,7 +441,7 @@ class NotificationDispatcher:
 
         if self.config.email_enabled:
             _send_email_notification(
-                subject=f"[Hash Monitor] {'ESCALATED ' if escalated else ''}Digest - {len(events)} events",
+                subject=f"[IntegrityGuard] {'ESCALATED ' if escalated else ''}Digest - {len(events)} events",
                 body=body,
                 config=self.config,
             )
@@ -486,8 +451,6 @@ class NotificationDispatcher:
             self._record_history(ev, dispatch_type)
 
         logger.info(f"Batch digest dispatched ({len(events)} events, escalated={escalated})")
-
-    #  Dispatch History
 
     def _record_history(self, event: Dict[str, Any], dispatch_type: str):
         entry = {
@@ -518,8 +481,6 @@ class NotificationDispatcher:
         }
         with self._history_lock:
             self._history.append(entry)
-
-    #  Background Loop
 
     def dispatch_loop(self, interval: float = 10.0):
         """

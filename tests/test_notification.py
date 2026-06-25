@@ -1,5 +1,4 @@
-"""
-test_notification.py  -  Unit tests for the notification dispatch engine
+"""Unit tests for the notification dispatch engine
 and the tier pre-filter in background_analysis.
 
 Tests cover:
@@ -24,7 +23,7 @@ from core.notification_dispatcher import (
 )
 
 
-#  Tier Pre-Filter Tests
+# Tier Pre-Filter Tests
 
 class TestTierPreFilter(unittest.TestCase):
     """Tests for the _apply_tier_prefilter function."""
@@ -74,7 +73,7 @@ class TestTierPreFilter(unittest.TestCase):
         self.assertIsNone(result)
 
 
-#  Notification Dispatcher Tests
+# Notification Dispatcher Tests
 
 class TestNotificationDispatcher(unittest.TestCase):
     """Tests for the NotificationDispatcher class."""
@@ -167,7 +166,7 @@ class TestNotificationDispatcher(unittest.TestCase):
         self.assertEqual(history[-1]['dispatch_type'], 'immediate')
 
 
-#  Config Tests
+# Config Tests
 
 class TestNotificationConfig(unittest.TestCase):
     """Tests for notification config management."""
@@ -198,7 +197,7 @@ class TestNotificationConfig(unittest.TestCase):
         self.assertEqual(dispatcher.config.escalation_threshold, 10)
 
 
-#  History Tests
+# History Tests
 
 class TestDispatchHistory(unittest.TestCase):
 

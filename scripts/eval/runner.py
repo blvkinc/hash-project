@@ -1,5 +1,4 @@
-"""
-runner.py  -  execute scenarios and print a metrics table.
+"""Execute evaluation scenarios and print a metrics table.
 
 Run as:  python -m scripts.eval.runner
 Or:      python scripts/eval/runner.py
@@ -14,7 +13,6 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-# Make `scripts.eval...` importable when run as a script.
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
@@ -53,10 +51,7 @@ def main(argv=None) -> int:
             1 for d in result.dispatches
             if d.dispatch_type == 'immediate' and d.priority in ('critical', 'high')
         )
-        # TPR assumes the scenario's malicious additions are the only ones that
-        # should produce immediate alerts. Useful for adversarial / mixed
-        # scenarios; for pure-benign scenarios truly_malicious is 0 so TPR is
-        # reported as "n/a".
+        # TPR is only reported for scenarios that contain suspicious fixtures.
         tpr = (critical_dispatches / truly_malicious) if truly_malicious else None
         fnr = (1.0 - tpr) if tpr is not None else None
 

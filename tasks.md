@@ -68,9 +68,9 @@ installability and the dissertation's "practical, lightweight tool" framing.*
 * [ ] **Final Write-up:** Document your findings, specifically the effectiveness of using an LLM to reduce "alert fatigue."
 
 
-## Phase 7: Debugging & Maintenance
+## Debugging & Maintenance
 
-* [x] **Debug Web Interface:** Investigated 2026-05-20 via `scripts/diagnose_phase7.py`. Pipeline (background_analysis, /api/baseline, /api/files/timeline) works end-to-end; the symptom was UX: benign modifications stayed at priority='info' and the sidebar gave no visual delta when the priority chip didn't change. Fix: `FileRecord.is_baseline` now flips to `False` on first modification (scanner + watcher), and `web/app.js` shows a `MODIFIED` pill on drifted files. Regression guarded by `tests/test_api_integration.py::test_modification_flips_is_baseline_and_increments_change_count`.
+* [x] **Debug Web Interface:** Investigated 2026-05-20 via `scripts/diagnose_pipeline.py`. Pipeline (background_analysis, /api/baseline, /api/files/timeline) works end-to-end; the symptom was UX: benign modifications stayed at priority='info' and the sidebar gave no visual delta when the priority chip didn't change. Fix: `FileRecord.is_baseline` now flips to `False` on first modification (scanner + watcher), and `web/app.js` shows a `MODIFIED` pill on drifted files. Regression guarded by `tests/test_api_integration.py::test_modification_flips_is_baseline_and_increments_change_count`.
 
 ---
 

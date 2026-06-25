@@ -1,17 +1,9 @@
-"""
-diagnose_phase7.py  -  repro for tasks.md Phase 7:
+"""Exercise the file-change pipeline against an isolated sqlite database.
 
-    "modifications analyzed by background_analysis.py
-     are not appearing on the web interface."
+The script runs a synthetic baseline, modification, analysis, notification, and
+API-readback flow without touching the local application database.
 
-Walks a synthetic file-change scenario through every stage of the pipeline
-(scanner -> background_analysis -> notification_dispatcher) and prints what
-each stage produced, against an isolated sqlite DB in a temp directory.
-
-This deliberately monkey-patches core.database BEFORE any other core module
-is imported, so the real file_monitor.db is not touched.
-
-Run:  python scripts/diagnose_phase7.py
+Run: python scripts/diagnose_pipeline.py
 """
 import os
 import sys
@@ -20,11 +12,10 @@ import time
 import shutil
 from pathlib import Path
 
-# Make project root importable when run as a script.
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-# --- Isolate the DB BEFORE any core.* import touches it ----------------
+# Patch the database module before importing scanner or analysis code.
 import sqlalchemy
 from sqlalchemy.orm import sessionmaker
 from core import database as _db  # noqa: E402
@@ -38,12 +29,10 @@ _db.DATABASE_PATH = str(_TMP_DIR / "diag.db")
 _db.DATABASE_URL = _TMP_DB_URL
 _db.init_db()
 
-# Now safe to import the rest.
 from core import scanner            # noqa: E402
 from core import background_analysis  # noqa: E402
 from core.models import FileRecord, FileLog  # noqa: E402
 
-# Force scanner and background_analysis to see the patched SessionLocal.
 scanner.SessionLocal = _db.SessionLocal
 background_analysis.SessionLocal = _db.SessionLocal
 
@@ -92,31 +81,29 @@ def main() -> int:
     user_file = target / "notes.txt"
     user_file.write_text("hello world\n")
 
-    section("Stage 0  -  Initial baseline scan")
+    section("Stage 0 - Initial baseline scan")
     result = scanner.scan_and_baseline(str(target))
     print(f"scan_and_baseline result: {result}")
     dump_records("after baseline")
     dump_logs("after baseline")
 
-    section("Stage 1  -  Modify the file")
-    time.sleep(1.1)  # ensure mtime changes
+    section("Stage 1 - Modify the file")
+    time.sleep(1.1)
     user_file.write_text("hello world\nan extra line that was not in baseline\n")
     print(f"Modified: {user_file}")
 
-    section("Stage 2  -  compare_and_log (the scan-mode change detector)")
+    section("Stage 2 - compare_and_log")
     cl = scanner.compare_and_log(str(target))
     print(f"compare_and_log result: {cl}")
     dump_logs("after compare_and_log")
 
-    section("Stage 3  -  process_pending_analysis (background analyser)")
-    # Mark the path as actively watched so Tier 1/2 suppression doesn't fire.
+    section("Stage 3 - process_pending_analysis")
     background_analysis.update_monitor_state(False, [str(target)])
     processed = background_analysis.process_pending_analysis(batch_size=10)
     print(f"process_pending_analysis processed={processed} events")
     dump_logs("after analysis")
 
-    section("Stage 4  -  what /api/baseline would return")
-    # Mirror the logic in core/api.py::get_baseline without spinning up FastAPI.
+    section("Stage 4 - baseline API data")
     s = _db.SessionLocal()
     try:
         from sqlalchemy import case
@@ -146,9 +133,7 @@ def main() -> int:
     finally:
         s.close()
 
-    section("Stage 5  -  what /api/files/timeline would return")
-    # Use the path EXACTLY as it was stored, mirroring what the
-    # frontend round-trips from /api/baseline back to /api/files/timeline.
+    section("Stage 5 - timeline API data")
     s = _db.SessionLocal()
     try:
         rec = s.query(FileRecord).filter(FileRecord.path.like('%notes.txt')).first()
@@ -156,7 +141,7 @@ def main() -> int:
         print(f"stored FileRecord.path = {stored_path!r}")
         print(f"Path.resolve()         = {str(user_file.resolve())!r}")
         if not stored_path:
-            print("  (no FileRecord found  -  cannot query timeline)")
+            print("  (no FileRecord found; cannot query timeline)")
         else:
             logs = (
                 s.query(FileLog)
@@ -173,13 +158,10 @@ def main() -> int:
     finally:
         s.close()
 
-    section("Stage 6  -  exercise the real FastAPI endpoints")
-    # Spin up the FastAPI app against the patched DB, hit the same routes
-    # the dashboard polls, and print what the JSON wire format looks like.
+    section("Stage 6 - FastAPI endpoint check")
     import json
     from fastapi.testclient import TestClient
-    from core import api as api_mod  # imports trigger init_db on the patched engine
-    # api.py grabs SessionLocal at import time  -  make sure it sees ours.
+    from core import api as api_mod
     api_mod.SessionLocal = _db.SessionLocal
     client = TestClient(api_mod.app)
 
@@ -193,17 +175,14 @@ def main() -> int:
         print(f"\nGET /api/files/timeline?path={path} ->")
         print(json.dumps(timeline, indent=2, default=str)[:1500])
 
-    section("Stage 7  -  modify a file with a real threat indicator")
-    # Drop a snippet that the heuristic engine will flag (reverse-shell pattern).
-    threat_file = target / "evil.sh"
+    section("Stage 7 - suspicious content classification")
+    threat_file = target / "network_callback.sh"
     threat_file.write_text(
         "#!/bin/bash\n"
-        "# benign placeholder\n"
+        "# baseline content\n"
         "echo hello\n"
     )
-    # Baseline this new file.
     scanner.compare_and_log(str(target))
-    # Now mutate it to include a clear reverse-shell signature.
     time.sleep(1.1)
     threat_file.write_text(
         "#!/bin/bash\n"
@@ -214,14 +193,13 @@ def main() -> int:
 
     threat_baseline = client.get("/api/baseline").json()
     for row in threat_baseline:
-        if row["path"].endswith("evil.sh"):
+        if row["path"].endswith("network_callback.sh"):
             print(
-                f"  evil.sh -> change_count={row['change_count']} "
+                f"  network_callback.sh -> change_count={row['change_count']} "
                 f"highest_priority={row['highest_priority']}"
             )
             break
 
-    # Cleanup
     try:
         shutil.rmtree(_TMP_DIR)
     except OSError:

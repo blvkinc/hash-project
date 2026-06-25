@@ -1,8 +1,7 @@
-"""
-core.__main__  -  headless CLI for the Hash Monitor.
+"""Headless CLI for IntegrityGuard.
 
-Lets the evaluation harness, cron jobs, and red-team scripts drive the
-pipeline without spinning up the FastAPI server.
+Lets the evaluation harness and scheduled jobs drive the pipeline without
+spinning up the FastAPI server.
 
 Subcommands:
   scan <path>        run scan_and_baseline + compare_and_log on a directory

@@ -1,6 +1,4 @@
-"""
-test_core.py  -  Unit tests for the File Integrity Monitor core modules.
-"""
+"""Unit tests for the IntegrityGuard core modules."""
 import os
 import sys
 import unittest

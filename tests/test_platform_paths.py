@@ -1,5 +1,4 @@
-"""
-test_platform_paths.py  -  Unit tests for cross-platform monitoring modules.
+"""Unit tests for cross-platform monitoring modules.
 
 Tests platform_paths.py and os_context.py to verify:
   - OS detection returns valid values

@@ -32,7 +32,7 @@ def _get_llm_context(file_path: str, change_type: str) -> str:
         return 'OS Context: unavailable'
 
 
-#  Threat Signature Database
+# Threat Signature Database
 
 # Each pattern: (compiled_regex, threat_category, severity, description)
 # severity: 10=critical, 7-9=high, 4-6=medium, 2-3=low
@@ -139,7 +139,7 @@ _p(r'QueueUserAPC\s*\(', 'process_injection', 9, 'APC injection technique')
 _p(r'SetThreadContext|NtSetContextThread', 'process_injection', 9, 'Thread context manipulation (injection)')
 _p(r'MapViewOfSection|NtMapViewOfSection', 'process_injection', 8, 'Section mapping (process hollowing)')
 
-#  Additional Reverse Shell Languages (revshells.com coverage)
+# Additional Reverse Shell Languages (revshells.com coverage)
 
 # Go / Golang Reverse Shell
 _p(r'net\.Dial\s*\(\s*"tcp"', 'reverse_shell', 9, 'Go TCP dial (reverse shell pattern)')
@@ -238,7 +238,7 @@ _p(r'IO::Socket::INET.*PeerAddr', 'reverse_shell', 9, 'Perl IO::Socket::INET con
 _p(r'open\s*\(\s*STDIN.*\|\|.*exec', 'reverse_shell', 10, 'Perl STDIN redirect + exec')
 _p(r'perl.*-MIO.*Socket.*INET', 'reverse_shell', 10, 'Perl one-liner socket reverse shell')
 
-#  Bind Shells
+# Bind Shells
 
 _p(r'nc\s+-l(v)?p?\s+\d+.*-e', 'bind_shell', 10, 'Netcat bind shell listening')
 _p(r'ncat\s+(-l|--listen).*(-e|--exec)', 'bind_shell', 10, 'Ncat bind shell')
@@ -247,7 +247,7 @@ _p(r'socket\.bind\s*\(\s*\(.*0\.0\.0\.0', 'bind_shell', 8, 'Socket bind on all i
 _p(r'socket\.listen\s*\(\s*\).*exec|socket\.accept.*exec', 'bind_shell', 9, 'Socket listen + exec (bind shell)')
 _p(r'ServerSocket\s*\(\s*\d+\s*\).*accept', 'bind_shell', 8, 'Java ServerSocket bind shell')
 
-#  Web Shells (expanded)
+# Web Shells (expanded)
 
 _p(r'eval\s*\(\s*\$_(GET|POST|REQUEST|COOKIE)', 'webshell', 10, 'PHP web shell (eval user input)')
 _p(r'(system|exec|passthru|shell_exec)\s*\(\s*\$_(GET|POST|REQUEST)', 'webshell', 10, 'PHP command injection via user input')
@@ -261,7 +261,7 @@ _p(r'call_user_func\s*\(.*\$_(GET|POST|REQUEST)', 'webshell', 10, 'PHP call_user
 _p(r'wso\s*shell|FilesMan|WSO\s*\d', 'webshell', 10, 'WSO web shell signature')
 _p(r'uname\s*-a.*phpinfo|phpinfo.*uname', 'webshell', 8, 'Web shell recon pattern')
 
-#  Credential Theft / Harvesting
+# Credential Theft / Harvesting
 
 _p(r'mimikatz|sekurlsa|kerberos.*ticket', 'credential_theft', 10, 'Mimikatz/credential dumping tool reference')
 _p(r'hashdump|pwdump|samdump|fgdump', 'credential_theft', 10, 'Password hash dumping tool')
@@ -276,7 +276,7 @@ _p(r'procdump.*-ma\s+lsass|procdump.*lsass', 'credential_theft', 10, 'ProcDump t
 _p(r'reg\s+save.*SAM|reg\s+save.*SYSTEM', 'credential_theft', 10, 'Registry hive extraction for credential theft')
 _p(r'Invoke-Kerberoast|rubeus|asreproast', 'credential_theft', 10, 'Kerberos attack tool')
 
-#  Privilege Escalation
+# Privilege Escalation
 
 _p(r'sudo\s+(chmod\s+[47]|chown\s+root|bash|su\s)', 'priv_escalation', 8, 'Sudo privilege escalation attempt')
 _p(r'chmod\s+[ugo]*\+?s\s', 'priv_escalation', 9, 'SUID/SGID bit manipulation')
@@ -291,7 +291,7 @@ _p(r'Invoke-PowerShellTcp|Invoke-Shellcode', 'priv_escalation', 10, 'PowerSploit
 _p(r'find\s+/\s+-perm.*-type\s+f.*suid', 'priv_escalation', 7, 'SUID binary enumeration')
 _p(r'getcap\s|setcap\s|cap_setuid', 'priv_escalation', 8, 'Linux capabilities manipulation')
 
-#  Persistence Mechanisms
+# Persistence Mechanisms
 
 _p(r'crontab\s+(-e|-l|.*\*/)', 'persistence', 8, 'Crontab modification (persistence)')
 _p(r'/etc/cron\.d|/etc/crontab', 'persistence', 8, 'System cron modification')
@@ -307,7 +307,7 @@ _p(r'startup\s+folder|shell:startup', 'persistence', 8, 'Windows startup folder 
 _p(r'WMI.*EventSubscription|__EventFilter', 'persistence', 9, 'WMI event subscription persistence')
 _p(r'New-ItemProperty.*CurrentVersion\\Run', 'persistence', 9, 'PowerShell registry Run key persistence')
 
-#  Data Exfiltration
+# Data Exfiltration
 
 _p(r'curl\s+.*-d\s+@|curl\s+.*--data-binary\s+@', 'exfiltration', 8, 'File upload via curl')
 _p(r'wget\s+.*--post-file', 'exfiltration', 8, 'File upload via wget')
@@ -317,7 +317,7 @@ _p(r'(zip|tar|7z|rar)\s+.*(/etc/|C:\\Windows\\|/home/|C:\\Users\\)', 'exfiltrati
 _p(r'certutil\s+-encode|certutil.*-urlcache', 'exfiltration', 9, 'Certutil for encoding/download (LOLBin)')
 _p(r'bitsadmin\s+/transfer', 'exfiltration', 8, 'BitsAdmin file transfer (LOLBin)')
 
-#  Obfuscation / Encoding
+# Obfuscation / Encoding
 
 _p(r'-enc(oded)?c(ommand)?\s+[A-Za-z0-9+/=]{20,}', 'obfuscation', 9, 'PowerShell encoded command')
 _p(r'base64\s+(-d|--decode)', 'obfuscation', 7, 'Base64 decode operation')
@@ -334,14 +334,14 @@ _p(r'Add-MpPreference\s+-ExclusionPath', 'evasion', 9, 'Windows Defender exclusi
 _p(r'AMSI.*bypass|AmsiUtils|amsiInitFailed', 'evasion', 10, 'AMSI bypass technique')
 _p(r'Unregister-EventLog|Clear-EventLog|wevtutil\s+cl', 'evasion', 9, 'Event log clearing (evidence destruction)')
 
-#  Suspicious System Calls
+# Suspicious System Calls
 
 _p(r'os\.system\s*\(|subprocess\.Popen\s*\(.*shell\s*=\s*True', 'suspicious_exec', 7, 'Python shell command execution')
 _p(r'Runtime\.getRuntime\(\)\.exec', 'suspicious_exec', 7, 'Java Runtime exec')
 _p(r'ProcessBuilder|ProcessStartInfo', 'suspicious_exec', 6, 'Process creation API')
 _p(r'WScript\.Shell|Shell\.Application', 'suspicious_exec', 7, 'Windows Script Host shell access')
 
-#  Network Reconnaissance
+# Network Reconnaissance
 
 _p(r'nmap\s|masscan\s|zmap\s', 'recon', 7, 'Network scanning tool')
 _p(r'net\s+(user|localgroup|group)\s', 'recon', 6, 'Windows user/group enumeration')
@@ -352,7 +352,7 @@ _p(r'gobuster|dirbuster|ffuf|wfuzz', 'recon', 7, 'Web directory enumeration tool
 _p(r'BloodHound|SharpHound|PowerView', 'recon', 9, 'Active Directory enumeration tool')
 _p(r'Invoke-Portscan|Test-NetConnection.*-Port', 'recon', 7, 'PowerShell port scanning')
 
-#  Destructive Actions
+# Destructive Actions
 
 _p(r'rm\s+-rf\s+/(?!tmp)', 'destructive', 9, 'Recursive delete from root')
 _p(r'dd\s+if=/dev/(zero|random).*of=/dev/', 'destructive', 10, 'Disk overwrite with dd')
@@ -361,7 +361,7 @@ _p(r':(){ :\|:& };:', 'destructive', 10, 'Fork bomb')
 _p(r'del\s+/[fFsS]\s+.*\*\.\*', 'destructive', 8, 'Windows force delete wildcard')
 _p(r'cipher\s+/w:', 'destructive', 8, 'Cipher wipe command (Windows)')
 
-#  Ransomware Indicators
+# Ransomware Indicators
 
 _p(r'from\s+Crypto(dome)?\.Cipher\s+import\s+AES', 'ransomware', 9, 'Python AES encryption import (potential ransomware)')
 _p(r'RSA\.generate|AES\.new.*MODE_CBC|Fernet\.generate_key', 'ransomware', 8, 'Cryptographic key generation (potential ransomware)')
@@ -374,7 +374,7 @@ _p(r'CryptEncrypt|CryptGenKey|CryptAcquireContext', 'ransomware', 9, 'Win32 Cryp
 _p(r'vssadmin\s+delete\s+shadows|wmic\s+shadowcopy\s+delete', 'ransomware', 10, 'Shadow copy deletion (ransomware indicator)')
 _p(r'bcdedit\s+/set.*recoveryenabled\s+no', 'ransomware', 10, 'Boot recovery disabled (ransomware)')
 
-#  Cryptominer Indicators
+# Cryptominer Indicators
 
 _p(r'stratum\+tcp://|stratum\+ssl://', 'cryptominer', 9, 'Mining pool connection (cryptominer)')
 _p(r'xmrig|cpuminer|cgminer|bfgminer|ethminer', 'cryptominer', 10, 'Known cryptominer binary')
@@ -382,7 +382,7 @@ _p(r'--coin\s*=|--algo\s*=.*cryptonight|--donate-level', 'cryptominer', 10, 'Cry
 _p(r'coinhive|cryptoloot|webminer|coin-hive', 'cryptominer', 10, 'Browser-based cryptominer')
 _p(r'hashrate|mining.*pool|wallet.*address.*mining', 'cryptominer', 8, 'Mining-related terminology')
 
-#  Trojan / RAT Indicators
+# Trojan / RAT Indicators
 
 _p(r'covenant|empire|cobalt.?strike|sliver', 'rat', 10, 'Known C2 framework reference')
 _p(r'TeamServer|BeaconPayload|StagelessPayload', 'rat', 10, 'Cobalt Strike component')
@@ -391,7 +391,7 @@ _p(r'reverse_tcp|reverse_https|bind_tcp', 'rat', 9, 'Meterpreter payload type')
 _p(r'pyinstaller.*onefile.*noconsole', 'rat', 8, 'PyInstaller hidden executable (common RAT packaging)')
 _p(r'pwncat|villain|havoc|mythic|brute.?ratel', 'rat', 10, 'Known C2/post-exploitation framework')
 
-#  Suspicious File Paths (in content)
+# Suspicious File Paths (in content)
 
 _p(r'C:\\Windows\\System32\\config\\SAM', 'suspicious_path', 9, 'Reference to SAM database path')
 _p(r'C:\\Windows\\NTDS\\ntds\.dit', 'suspicious_path', 9, 'Active Directory database reference')
@@ -400,7 +400,7 @@ _p(r'/tmp/\.hidden|/dev/shm/\.\w+', 'suspicious_path', 8, 'Hidden file in temp/s
 _p(r'C:\\Windows\\Temp\\.*\.(exe|dll|bat|ps1)', 'suspicious_path', 8, 'Executable in Windows Temp directory')
 
 
-#  Suspicious Path Patterns (file location analysis)
+# Suspicious Path Patterns (file location analysis)
 
 HIGH_RISK_PATHS = [
     # Cross-platform system directories
@@ -445,7 +445,7 @@ HIGH_RISK_EXTENSIONS = {
 }
 
 
-#  MITRE ATT&CK Mapping + Threat Classifications
+# MITRE ATT&CK Mapping + Threat Classifications
 
 MITRE_MAPPING: Dict[str, Dict] = {
     'reverse_shell': {
@@ -706,7 +706,7 @@ def _extract_iocs(content: str) -> List[str]:
     return iocs[:10]  # Cap at 10
 
 
-#  Context-Aware Diff Parsing
+# Context-Aware Diff Parsing
 
 _CURRENT_CONTENT_MARKER = "=== CURRENT CONTENT (snippet) ==="
 _UNIFIED_DIFF_MARKER = "=== UNIFIED DIFF (before -> after) ==="
@@ -766,7 +766,7 @@ def _summarize_change_from_context(content: Optional[str]) -> str:
         f"{added_count} line(s) added and {removed_count} line(s) removed."
     )
 
-#  Content Summary (for readable files)
+# Content Summary (for readable files)
 
 def _summarize_content(content: str, file_path: str) -> str:
     """
@@ -847,7 +847,7 @@ def _summarize_content(content: str, file_path: str) -> str:
     return f"File content ({size_note}): {'; '.join(features)}."
 
 
-#  Main Analysis Function
+# Main Analysis Function
 
 def analyze_file_change(
     file_path: str,
@@ -1101,7 +1101,7 @@ def _default_recommended_actions(score: int, threat_type: str) -> List[str]:
     ]
 
 
-#  Heuristic Analysis Engine
+# Heuristic Analysis Engine
 
 def _fallback_analysis(
     file_path: str,

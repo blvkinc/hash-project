@@ -1,14 +1,14 @@
+"""Local smoke checks for binary handling and Tier 4 content overrides."""
+
 import os
 from sqlalchemy.orm import Session
 from core.database import SessionLocal, init_db
 from core.models import FileLog
 from core.background_analysis import process_pending_analysis
 
-# Initialize DB for testing
 init_db()
 
 def create_mock_log(path: str, content: str, event_type: str = "new") -> FileLog:
-    # Ensure there's a log simulating a "new" file with the given content
     session = SessionLocal()
     log = FileLog(
         path=path,
@@ -24,14 +24,11 @@ def create_mock_log(path: str, content: str, event_type: str = "new") -> FileLog
     return log
 
 if __name__ == "__main__":
-    # Test 1: Fake binary file
-    print("=== Testing Binary File Fake ===")
+    print("=== Binary/unreadable file handling ===")
     binary_content = "Binary/Unreadable"
     bin_path = os.path.abspath("test_binary.png")
 
-    # We simulate what scanner/watcher would give us: "Binary/Unreadable"
     session = SessionLocal()
-    # Clean previous test
     session.query(FileLog).filter(FileLog.path.like("%test_%")).delete()
     session.commit()
     session.close()
@@ -48,12 +45,10 @@ if __name__ == "__main__":
     print("Binary file priority:", bin_log.priority)
     session.close()
 
-    # Test 2: Heuristic Fake Positive triggered in Temp dir (Low priority Tier 4)
-    print("\n=== Testing Tier 4 Escalation Override ===")
+    print("\n=== Tier 4 escalation override ===")
     fp_content = "This temp file has c2 and callback in it"
-    fp_path = os.path.abspath(r"C:\Windows\Temp\test_heuristic.txt") # Windows Tier 4 path
+    fp_path = os.path.abspath(r"C:\Windows\Temp\test_heuristic.txt")
     if not os.path.exists(r"C:\Windows\Temp"):
-        # Fallback to linux tier 4 for cross-platform testing
         fp_path = os.path.abspath(r"/tmp/test_heuristic.txt")
 
     create_mock_log(fp_path, fp_content)
@@ -64,9 +59,9 @@ if __name__ == "__main__":
 
     session = SessionLocal()
     fp_log = session.query(FileLog).filter_by(path=fp_path).first()
-    print("FP file risk score:", fp_log.risk_score)
-    print("FP logic override:", fp_log.analysis_json.get('tier_override'))
-    print("FP file priority:", fp_log.priority)
+    print("Tier 4 file risk score:", fp_log.risk_score)
+    print("Tier 4 override:", fp_log.analysis_json.get('tier_override'))
+    print("Tier 4 file priority:", fp_log.priority)
     session.close()
 
     print("\nDone.")

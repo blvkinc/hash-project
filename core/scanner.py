@@ -1,8 +1,4 @@
-"""
-scanner.py  -  Directory scanning and baseline hashing.
-
-Walks a directory, hashes every file, and stores/compares against the database.
-"""
+"""Directory scanning and baseline hashing."""
 import os
 import time
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
@@ -26,17 +22,14 @@ from .services.file_registry import (
     upsert_registry_entry,
 )
 
-# Directories to skip
 EXCLUDED_DIRS = {
     '.git', '__pycache__', 'node_modules', '.venv', 'env', 'venv',
     '$RECYCLE.BIN', 'System Volume Information', '.idea', '.vscode',
 }
 
-# Merge platform-specific noisy directories into exclusions
 for _noisy in get_noisy_dirs():
     EXCLUDED_DIRS.add(os.path.basename(_noisy))
 
-# Files to skip
 EXCLUDED_FILES = {
     'file_monitor.db', 'file_monitor.db-journal', 'file_monitor.db-wal',
 }

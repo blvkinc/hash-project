@@ -1,5 +1,4 @@
-"""
-harness.py  -  isolated test bed for the FIM analysis pipeline.
+"""Isolated test bed for the FIM analysis pipeline.
 
 Provides a single class (`EvalHarness`) that:
   - sets up an isolated sqlite DB in a temp directory,
@@ -79,7 +78,6 @@ class EvalHarness:
         self.workdir = self._tmp / "target"
         self.workdir.mkdir(parents=True, exist_ok=True)
 
-        # --- Patch core.database BEFORE importing scanner / background_analysis ---
         from core import database as _db
         self._db = _db
         engine = sqlalchemy.create_engine(
@@ -92,7 +90,6 @@ class EvalHarness:
         _db.DATABASE_URL = f"sqlite:///{self._tmp / 'eval.db'}"
         _db.init_db()
 
-        # Late imports  -  they pick up the patched SessionLocal.
         from core import scanner, background_analysis
         scanner.SessionLocal = _db.SessionLocal
         background_analysis.SessionLocal = _db.SessionLocal

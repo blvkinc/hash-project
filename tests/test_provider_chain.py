@@ -1,5 +1,4 @@
-"""
-test_provider_chain.py  -  verify the Ollama -> Gemini -> heuristic fallback
+"""Verify the Ollama, Gemini, and heuristic provider chain
 order in core.llm_analyzer.analyze_file_change.
 
 Uses mock to intercept HTTP calls so the test doesn't depend on a live

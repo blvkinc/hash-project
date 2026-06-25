@@ -1,5 +1,4 @@
-"""
-logging_config.py  -  opt-in JSON logging for the evaluation phase.
+"""Logging setup for console and optional JSON output.
 
 Default behaviour is unchanged (human-readable text). Set FIM_LOG_JSON=1
 to emit one JSON object per log line, suitable for `jq`, ElasticSearch,

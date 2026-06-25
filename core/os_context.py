@@ -1,5 +1,4 @@
-"""
-os_context.py  -  OS detection and system event context for LLM analysis.
+"""OS detection and system-event context for file-change analysis.
 
 Provides context signals that differ by operating system so the
 Ollama model can reason about whether a file change is expected
@@ -26,7 +25,7 @@ logger = logging.getLogger(__name__)
 _RECENCY_WINDOW_HOURS = 4
 
 
-#  System Update Detection
+# System Update Detection
 
 def _file_modified_recently(path: str, hours: int = _RECENCY_WINDOW_HOURS) -> bool:
     """Check if a file was modified within the last N hours."""
@@ -150,7 +149,7 @@ def get_recent_system_updates(target_os: Optional[str] = None) -> Dict[str, Any]
     return {'recent_updates': False, 'package_manager': None, 'details': []}
 
 
-#  LLM Context Builder
+# LLM Context Builder
 
 def get_os_info() -> Dict[str, str]:
     """Get detailed OS information for the LLM prompt."""

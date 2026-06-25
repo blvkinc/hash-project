@@ -1,14 +1,4 @@
-"""
-test_api_integration.py  -  end-to-end FastAPI integration tests.
-
-Covers the regression class the Phase 7 investigation surfaced:
-a baseline scan + file modification must produce visible state on the
-public API (/api/baseline, /api/files/timeline), and the
-is_baseline flag must flip to False after modification.
-
-Each test isolates state via a fresh sqlite DB in a tmp_path fixture,
-applied before any core.* import is cached.
-"""
+"""End-to-end FastAPI integration tests."""
 from __future__ import annotations
 
 import os
@@ -21,7 +11,6 @@ import pytest
 import sqlalchemy
 from sqlalchemy.orm import sessionmaker
 
-# Ensure project root is importable.
 _PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
@@ -32,7 +21,6 @@ def isolated_app(tmp_path):
     """Spin up the FastAPI app against a fresh sqlite DB under tmp_path."""
     from core import database as _db
 
-    # Patch the global engine + session before scanner / api import them.
     db_file = tmp_path / "fim_test.db"
     engine = sqlalchemy.create_engine(
         f"sqlite:///{db_file}", connect_args={"check_same_thread": False}
@@ -180,7 +168,7 @@ def test_agent_activity_endpoint_reports_recent_investigation(isolated_app):
 
 
 def test_modification_flips_is_baseline_and_increments_change_count(isolated_app):
-    """The Phase 7 regression: a modification must reach the UI as 'drifted'."""
+    """A modification must reach the UI as a drifted file."""
     ctx = isolated_app
     f = ctx["workdir"] / "alpha.txt"
     f.write_text("hello\n", encoding="utf-8")
@@ -188,7 +176,6 @@ def test_modification_flips_is_baseline_and_increments_change_count(isolated_app
     ctx["scanner"].scan_and_baseline(str(ctx["workdir"]))
     _drain_analysis(ctx)
 
-    # Force a mtime delta so compare_and_log doesn't short-circuit.
     time.sleep(1.1)
     f.write_text("hello\nan extra line\n", encoding="utf-8")
     ctx["scanner"].compare_and_log(str(ctx["workdir"]))
@@ -222,7 +209,6 @@ def test_timeline_returns_full_event_history(isolated_app):
     types = [e["event_type"] for e in events]
     assert "new" in types
     assert "modified" in types
-    # Every event should have reached a terminal status.
     assert all(e["status"] in ("analyzed", "ignored", "recorded") for e in events), events
 
 

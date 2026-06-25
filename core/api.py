@@ -1,5 +1,4 @@
-﻿"""
-api.py  -  FastAPI backend for the File Integrity Monitor.
+﻿"""FastAPI backend for IntegrityGuard.
 
 Serves the REST API and the static frontend.
 On startup, initialises the DB, starts the real-time watcher,

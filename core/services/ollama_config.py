@@ -1,5 +1,4 @@
-"""
-ollama_config.py  -  preferred-model auto-selection for the local Ollama server.
+"""Preferred-model auto-selection for the local Ollama server.
 
 Picks qwen2.5-coder when available, then mistral; runs a small benchmark
 to choose between them when both are installed; otherwise falls back to

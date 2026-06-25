@@ -1,9 +1,4 @@
-"""
-watcher.py  -  Real-time filesystem monitoring using watchdog.
-
-Watches a directory for file create/modify/delete events,
-re-hashes affected files, and logs changes to the database.
-"""
+"""Real-time filesystem monitoring using watchdog."""
 import os
 import time
 import threading
@@ -29,7 +24,6 @@ from .services.file_registry import (
 
 logger = logging.getLogger(__name__)
 
-# Directories / files to ignore
 EXCLUDED_DIRS = {
     '.git', '__pycache__', 'node_modules', '.venv', 'env', 'venv',
     '$RECYCLE.BIN', 'System Volume Information', '.idea', '.vscode',
