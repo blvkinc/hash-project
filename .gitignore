@@ -54,3 +54,6 @@ watched/
 # Local MemPalace runtime store and external inspection clones
 .mempalace_fim/
 .external/
+
+#misc
+/Dissertation samples and guides
