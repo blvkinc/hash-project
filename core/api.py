@@ -1,9 +1,8 @@
 ﻿"""FastAPI backend for IntegrityGuard.
 
-Serves the REST API and the static frontend.
-On startup, initialises the DB, starts the real-time watcher,
-and starts the background LLM analysis thread.
+Serves the REST API and static dashboard, and coordinates runtime workers.
 """
+from contextlib import asynccontextmanager
 import os
 import sys
 import threading
@@ -45,17 +44,57 @@ from core.services.mempalace_bridge import backend_status as mempalace_backend_s
 from core.services.watch_manager import WatchManager
 from core.logging_config import configure_logging
 
-# Logging (honours FIM_LOG_JSON / FIM_LOG_LEVEL env vars).
 configure_logging()
 logger = logging.getLogger(__name__)
 
-# Initialise DB
 init_db()
 
-# FastAPI app
-app = FastAPI(title="File Integrity Monitor", version="2.0")
 
-# CORS
+@asynccontextmanager
+async def _application_lifespan(_: FastAPI):
+    """Start and stop background services with the ASGI application."""
+    try:
+        configure_preferred_ollama_model()
+    except Exception as exc:
+        logger.warning("Unable to auto-configure Ollama model: %s", exc)
+
+    analysis_stop = threading.Event()
+    notification_stop = threading.Event()
+    analysis_thread = threading.Thread(
+        name="integrityguard-analysis",
+        target=run_analysis_loop,
+        args=(5.0, analysis_stop),
+        daemon=True,
+    )
+    notification_thread = threading.Thread(
+        name="integrityguard-notifications",
+        target=dispatcher.dispatch_loop,
+        args=(10.0, notification_stop),
+        daemon=True,
+    )
+    analysis_thread.start()
+    notification_thread.start()
+    logger.info("Background analysis and notification workers started.")
+
+    try:
+        yield
+    finally:
+        analysis_stop.set()
+        notification_stop.set()
+        try:
+            _stop_runtime_services()
+        finally:
+            analysis_thread.join(timeout=2.0)
+            notification_thread.join(timeout=2.0)
+            logger.info("Background services stopped.")
+
+
+app = FastAPI(
+    title="IntegrityGuard",
+    version="2.0",
+    lifespan=_application_lifespan,
+)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -98,6 +137,22 @@ _scan_state = {
     "current_file": None,
     "hash_workers": 0,
 }
+
+
+def _stop_runtime_services() -> None:
+    """Stop filesystem and registry watchers owned by this process."""
+    global _registry_watcher, _system_monitor_enabled
+    global _system_monitored_paths, _system_started_paths, _system_registry_paths
+
+    _watch_manager.stop()
+    if _registry_watcher and _registry_watcher.is_running:
+        _registry_watcher.stop()
+    _registry_watcher = None
+    _system_monitor_enabled = False
+    _system_monitored_paths = []
+    _system_started_paths = []
+    _system_registry_paths = []
+    _sync_monitor_state()
 
 
 def _create_persisted_scan(path: str, trigger: str, mode: str | None = None) -> int:
@@ -410,27 +465,6 @@ def _run_system_monitor_directory_scan(paths: List[str]) -> None:
         error="; ".join(e["error"] for e in errors) if stage == "error" else None,
         **(_progress_metrics(completed[-1]["baseline"]) if completed else _empty_progress_metrics()),
     )
-
-
-# Application startup
-
-@app.on_event("startup")
-async def startup():
-    # Configure preferred local model at startup.
-    try:
-        configure_preferred_ollama_model()
-    except Exception as exc:
-        logger.warning(f"Unable to auto-configure Ollama model: {exc}")
-
-    # Process pending file analysis in the background.
-    t = threading.Thread(target=run_analysis_loop, args=(5.0,), daemon=True)
-    t.start()
-    logger.info("Background analysis thread started.")
-
-    # Dispatch queued notifications.
-    nt = threading.Thread(target=dispatcher.dispatch_loop, args=(10.0,), daemon=True)
-    nt.start()
-    logger.info("Notification dispatch thread started.")
 
 
 # Request and response models

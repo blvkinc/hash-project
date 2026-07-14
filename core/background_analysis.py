@@ -8,6 +8,7 @@ import time
 import os
 import logging
 import difflib
+import threading
 from datetime import datetime
 from sqlalchemy.orm import Session
 from sqlalchemy import case, or_
@@ -15,6 +16,7 @@ from .config import settings
 from .database import SessionLocal
 from .models import FileLog, FileRecord
 from .hasher import calculate_security_file_hash
+from .file_content import read_text_snippet
 from .analysis_cache import (
     build_analysis_cache_meta,
     get_cached_analysis,
@@ -32,7 +34,7 @@ from .services.registry_analyzer import (
 
 logger = logging.getLogger(__name__)
 
-# Module-level dispatcher instance (shared with api.py)
+# Shared by the analysis worker and the notification API.
 dispatcher = NotificationDispatcher()
 
 _UNREADABLE_SENTINELS = {'', 'Binary/Unreadable', 'File deleted'}
@@ -155,15 +157,7 @@ def _extract_event_context(analysis_json) -> dict:
 
 def _read_deferred_snippet(file_path: str, max_chars: int = 5000) -> str:
     """Read a bounded text snippet for hash-first deferred analysis."""
-    try:
-        with open(file_path, 'rb') as f:
-            chunk = f.read(min(1024, max_chars))
-            if b'\x00' in chunk:
-                return "Binary/Unreadable"
-        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-            return f.read(max_chars)
-    except Exception:
-        return "Binary/Unreadable"
+    return read_text_snippet(file_path, max_chars)
 
 
 def _latest_previous_snippet(
@@ -731,7 +725,7 @@ def process_pending_analysis(batch_size: int | None = None):
                     if _is_readable_snippet(snippet):
                         from .llm_analyzer import _fallback_analysis, _summarize_content
 
-                        # Run quick heuristic scan on context-rich content
+                        # The heuristic is cheap enough to decide whether provider review is useful.
                         heuristic_result = _fallback_analysis(
                             log.path, log.event_type, contextual_diff, metadata=metadata
                         )
@@ -751,8 +745,13 @@ def process_pending_analysis(batch_size: int | None = None):
                                     f"{analysis.get('reasoning', '')}"
                                 )
                             else:
-                                # High content risk should receive provider-backed review.
-                                logger.info(f"Tier {prefilter_result.get('tier')} override! Sending to LLM due to heuristic threat score {heuristic_score}")
+                                logger.info(
+                                    "Tier %s prefilter overridden by heuristic score %s; "
+                                    "requesting provider review for %s",
+                                    prefilter_result.get('tier'),
+                                    heuristic_score,
+                                    log.path,
+                                )
 
                                 analysis = analyze_file_change(
                                     file_path=log.path,
@@ -761,16 +760,16 @@ def process_pending_analysis(batch_size: int | None = None):
                                     metadata=metadata,
                                 )
 
-                                # Give LLM the benefit of doubt for false positives. If it thinks it's
-                                # benign after thorough review, we accept it.
+                                # The provider sees the contextual diff and may confirm or downgrade
+                                # a pattern-only heuristic result.
                                 analysis['tier_override'] = True
                                 analysis['original_tier'] = prefilter_result.get('tier')
 
-                                logger.warning(
-                                    f"Tier {prefilter_result.get('tier')} escalation complete! "
-                                    f"Post-LLM analysis for {log.path} -> "
-                                    f"risk={analysis.get('risk_score', 'N/A')}, "
-                                    f"priority={analysis.get('priority', 'N/A')}"
+                                logger.info(
+                                    "Provider review completed for %s: risk=%s, priority=%s",
+                                    log.path,
+                                    analysis.get('risk_score', 'N/A'),
+                                    analysis.get('priority', 'N/A'),
                                 )
                         elif heuristic_score > prefilter_score:
                             # A watched low-tier path can still contain risky content.
@@ -837,6 +836,9 @@ def process_pending_analysis(batch_size: int | None = None):
                         "backlog_critical_only": getattr(settings, "agent_investigation_backlog_critical_only", True),
                     },
                 )
+                analysis["baseline_context"] = bool(
+                    metadata.get("is_baseline") or _is_baseline_log(log)
+                )
                 if (analysis.get("agent_investigation") or {}).get("ran"):
                     investigations_used += 1
                 analysis = _attach_event_context(
@@ -900,14 +902,20 @@ def process_pending_analysis(batch_size: int | None = None):
         session.close()
 
 
-def run_analysis_loop(interval: float = 5.0):
-    """Continuously process pending analyses. Intended for background thread."""
+def run_analysis_loop(
+    interval: float = 5.0,
+    stop_event: threading.Event | None = None,
+) -> None:
+    """Process pending analyses until the application asks the worker to stop."""
     logger.info("Background analysis loop started.")
-    while True:
+    while stop_event is None or not stop_event.is_set():
         try:
             processed = process_pending_analysis()
             if processed:
                 logger.info(f"Processed {processed} pending events.")
-        except Exception as e:
-            logger.error(f"Analysis loop error: {e}")
-        time.sleep(interval)
+        except Exception:
+            logger.exception("Analysis worker failed while processing the queue.")
+        if stop_event is None:
+            time.sleep(interval)
+        else:
+            stop_event.wait(interval)

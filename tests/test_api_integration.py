@@ -100,6 +100,11 @@ def test_baseline_exposes_file_registry_context(isolated_app):
     assert row["registry"]["tier"] == 3
     assert row["semantic_role"] == "source_code"
 
+    _drain_analysis(ctx)
+    logs = ctx["client"].get("/api/logs", params={"limit": 40}).json()
+    baseline_log = next(item for item in logs if item["path"] == str(f))
+    assert baseline_log["analysis"]["baseline_context"] is True
+
 
 def test_agent_activity_endpoint_reports_recent_investigation(isolated_app):
     """Agent View feed should expose investigation state and tool activity."""

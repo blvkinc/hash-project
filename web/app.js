@@ -21,6 +21,8 @@ let readNotificationIds = new Set();
 let openInvestigationDrawers = new Set();
 let agentActivity = null;
 let agentPanelOpen = false;
+let baselineRevision = null;
+let lastCompletedScan = null;
 
 // DOM references.
 const $ = id => document.getElementById(id);
@@ -144,7 +146,6 @@ function tick() {
 
 function refresh() {
     fetchStats();
-    fetchBaseline();
     fetchWatcherStatus();
     fetchSystemMonitorStatus();
     fetchScanStatus();
@@ -199,6 +200,10 @@ async function fetchScanStatus() {
         const d = await parseApiPayload(r);
         if (!r.ok) return;
         renderScanProgress(d);
+        if (d.completed_at && d.completed_at !== lastCompletedScan) {
+            lastCompletedScan = d.completed_at;
+            fetchBaseline();
+        }
     } catch (e) {
         console.error('Scan status error', e);
     }
@@ -294,6 +299,21 @@ async function fetchStats() {
                 : `Hash ${algorithm}${threads}`;
         }
         setQueueMeter(d.pending_analysis ?? d.pending ?? 0);
+
+        const revision = [
+            d.monitored_files,
+            d.total_events,
+            d.pending_analysis ?? d.pending,
+            d.critical,
+            d.high,
+            d.medium,
+            d.low,
+            d.info,
+        ].join(':');
+        if (revision !== baselineRevision) {
+            baselineRevision = revision;
+            fetchBaseline();
+        }
     } catch (e) {
         console.error('Stats error', e);
     }
@@ -792,6 +812,7 @@ async function fetchBaseline() {
             showTimelineEmpty('No monitored files', 'Scan results will appear here');
         }
     } catch (e) {
+        baselineRevision = null;
         console.error('Baseline error', e);
     }
 }

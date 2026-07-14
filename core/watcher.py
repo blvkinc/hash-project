@@ -11,6 +11,7 @@ from .config import settings
 from .database import SessionLocal
 from .models import FileIdentity, FileRecord, FileLog
 from .hasher import calculate_file_hash, get_file_metadata
+from .file_content import read_text_snippet
 from .file_identity import (
     attach_identity_to_record,
     find_identity_by_platform_id,
@@ -45,16 +46,7 @@ def _should_ignore(path: str) -> bool:
 
 
 def _read_snippet(file_path: str, max_chars: int = 5000) -> str:
-    try:
-        with open(file_path, 'rb') as f:
-            chunk = f.read(min(1024, max_chars))
-            if b'\x00' in chunk:
-                return "Binary/Unreadable"
-
-        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-            return f.read(max_chars)
-    except Exception:
-        return "Binary/Unreadable"
+    return read_text_snippet(file_path, max_chars)
 
 
 def _watch_registry_context(

@@ -482,17 +482,21 @@ class NotificationDispatcher:
         with self._history_lock:
             self._history.append(entry)
 
-    def dispatch_loop(self, interval: float = 10.0):
-        """
-        Periodically flush the batch queue if the batch interval has elapsed.
-        Intended to run in a daemon thread.
-        """
+    def dispatch_loop(
+        self,
+        interval: float = 10.0,
+        stop_event: threading.Event | None = None,
+    ) -> None:
+        """Flush due notification batches until application shutdown."""
         logger.info("Notification dispatch loop started.")
-        while True:
+        while stop_event is None or not stop_event.is_set():
             try:
                 elapsed = time.time() - self._last_batch_dispatch
                 if elapsed >= self.config.batch_interval_seconds:
                     self._flush_batch(escalated=False)
-            except Exception as e:
-                logger.error(f"Dispatch loop error: {e}")
-            time.sleep(interval)
+            except Exception:
+                logger.exception("Notification worker failed while flushing a batch.")
+            if stop_event is None:
+                time.sleep(interval)
+            else:
+                stop_event.wait(interval)

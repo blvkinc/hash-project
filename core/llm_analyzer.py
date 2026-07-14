@@ -1206,7 +1206,19 @@ def _fallback_analysis(
 
     # -- Layer 4: Extension-based baseline (no content findings) --
     if not findings:
-        if ext in ('.conf', '.cfg', '.ini', '.env', '.key', '.pem', '.crt', '.pfx', '.yaml', '.yml'):
+        if is_baseline:
+            max_score = 1
+            findings.append({
+                'category': 'benign',
+                'severity': 1,
+                'description': 'Baseline content inspected; no threat indicators detected.',
+                'match_count': 1,
+                'context_sensitive': False,
+            })
+            context_notes.append(
+                'Baseline initialization was recorded without alerting on file type alone.'
+            )
+        elif ext in ('.conf', '.cfg', '.ini', '.env', '.key', '.pem', '.crt', '.pfx', '.yaml', '.yml'):
             max_score = 5
             findings.append({
                 'category': 'config_file',
@@ -1406,6 +1418,7 @@ def _fallback_analysis(
         'confidence': confidence,
         'reasoning': reasoning,
         'analysis_source': 'heuristic',
+        'baseline_context': is_baseline,
         'context_notes': context_notes,
         'findings': output_findings,
         'change_summary': change_summary,
