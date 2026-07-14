@@ -23,8 +23,7 @@ from .services.file_registry import (
 )
 
 EXCLUDED_DIRS = {
-    '.git', '__pycache__', 'node_modules', '.venv', 'env', 'venv',
-    '$RECYCLE.BIN', 'System Volume Information', '.idea', '.vscode',
+    '__pycache__', '$RECYCLE.BIN', 'System Volume Information', '.idea', '.vscode',
 }
 
 for _noisy in get_noisy_dirs():
@@ -48,21 +47,55 @@ DEFERRED_BASELINE_ANALYSIS_EXTENSIONS = {
 }
 
 
-def _walk_directory(root_path: str) -> list[str]:
-    """Walk directory tree and return list of absolute file paths."""
+def _count_files_quietly(root_path: str) -> int:
+    """Count files under a skipped directory without failing the whole scan."""
+    count = 0
+    try:
+        for _, _, filenames in os.walk(root_path):
+            count += len(filenames)
+    except (PermissionError, OSError):
+        return count
+    return count
+
+
+def _walk_directory_with_stats(root_path: str) -> tuple[list[str], dict]:
+    """Walk directory tree and report files intentionally skipped by policy."""
     abs_root = os.path.abspath(root_path)
     file_list = []
+    excluded_dirs = []
+    excluded_file_count = 0
 
     for dirpath, dirnames, filenames in os.walk(abs_root):
         # Skip excluded directories (in-place modification)
+        skipped_dirs = [d for d in dirnames if d in EXCLUDED_DIRS]
+        for dirname in skipped_dirs:
+            skipped_path = os.path.abspath(os.path.join(dirpath, dirname))
+            skipped_files = _count_files_quietly(skipped_path)
+            excluded_file_count += skipped_files
+            excluded_dirs.append({
+                "name": dirname,
+                "path": skipped_path,
+                "files": skipped_files,
+            })
         dirnames[:] = [d for d in dirnames if d not in EXCLUDED_DIRS]
 
         for filename in filenames:
             if filename in EXCLUDED_FILES:
+                excluded_file_count += 1
                 continue
             file_list.append(os.path.abspath(os.path.join(dirpath, filename)))
 
-    return file_list
+    excluded_dirs.sort(key=lambda item: item.get("files", 0), reverse=True)
+    return file_list, {
+        "excluded_file_count": excluded_file_count,
+        "excluded_dir_count": len(excluded_dirs),
+        "excluded_dirs": excluded_dirs[:20],
+    }
+
+
+def _walk_directory(root_path: str) -> list[str]:
+    """Walk directory tree and return list of absolute file paths."""
+    return _walk_directory_with_stats(root_path)[0]
 
 
 def _emit_progress(
@@ -247,7 +280,7 @@ def scan_and_baseline(
         )
 
     session: Session = SessionLocal()
-    file_list = _walk_directory(root_path)
+    file_list, walk_stats = _walk_directory_with_stats(root_path)
     new_count = 0
     existing_count = 0
     reanalyzed_count = 0
@@ -385,6 +418,7 @@ def scan_and_baseline(
         session.commit()
         return {
             "total_files": len(file_list),
+            **walk_stats,
             "new_baselined": new_count,
             "updated": existing_count,
             "reanalyzed": reanalyzed_count,
@@ -415,7 +449,7 @@ def _scan_hash_first_baseline(
     background queue for selected high-value text/config/script files.
     """
     session: Session = SessionLocal()
-    file_list = _walk_directory(root_path)
+    file_list, walk_stats = _walk_directory_with_stats(root_path)
     new_count = 0
     existing_count = 0
     reanalyzed_count = 0
@@ -674,6 +708,7 @@ def _scan_hash_first_baseline(
         return {
             "scan_mode": "hash_first",
             "total_files": len(file_list),
+            **walk_stats,
             "new_baselined": new_count,
             "updated": existing_count,
             "reanalyzed": reanalyzed_count,

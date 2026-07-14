@@ -212,15 +212,22 @@ function renderScanProgress(scan) {
     el.scanProgress.hidden = !(active || hasResult);
     if (el.scanProgress.hidden) return;
 
-    const total = Math.max(0, Number(scan.total) || 0);
-    const processed = Math.max(0, Number(scan.processed) || 0);
-    const percent = total ? Math.min(100, Math.round((processed / total) * 100)) : Number(scan.percent || 0);
+    const baselineTotal = Number(scan.result?.baseline?.total_files || 0);
+    const excludedFileCount = Number(scan.excluded_file_count || scan.result?.baseline?.excluded_file_count || 0);
+    const isComplete = scan.stage === 'complete' || !!scan.completed_at;
+    const total = Math.max(0, Number(scan.total) || (isComplete ? baselineTotal : 0));
+    const processed = Math.max(0, Number(scan.processed) || (isComplete ? total : 0));
+    const percent = isComplete
+        ? 100
+        : (total ? Math.min(100, Math.round((processed / total) * 100)) : Number(scan.percent || 0));
     const message = scan.message || (active ? 'Scan running' : 'Scan idle');
 
     el.scanProgress.classList.toggle('is-active', active);
     el.scanProgress.classList.toggle('is-error', scan.stage === 'error');
     el.scanProgressLabel.textContent = message;
-    el.scanProgressCount.textContent = total ? `${processed} / ${total}` : (scan.stage || 'idle');
+    el.scanProgressCount.textContent = total
+        ? `${processed.toLocaleString()} / ${total.toLocaleString()}${excludedFileCount ? `, ${excludedFileCount.toLocaleString()} excluded` : ''}`
+        : (scan.stage || 'idle');
     el.scanProgressBar.style.width = `${Math.max(0, Math.min(100, percent))}%`;
     renderScanMetrics(scan);
 }
@@ -236,6 +243,8 @@ function renderScanMetrics(scan) {
     const commits = Number(scan.commit_count || 0);
     const errors = Number(scan.errors || 0);
     const hashWorkers = Number(scan.hash_workers || 0);
+    const excludedFileCount = Number(scan.excluded_file_count || scan.result?.baseline?.excluded_file_count || 0);
+    const excludedDirCount = Number(scan.excluded_dir_count || scan.result?.baseline?.excluded_dir_count || 0);
 
     const metrics = [];
     if (filesPerSecond || mbPerSecond || bytesProcessed) {
@@ -247,6 +256,9 @@ function renderScanMetrics(scan) {
     if (hashSeconds) metrics.push(['Hash time', fmtDuration(hashSeconds)]);
     if (hashWorkers > 1) metrics.push(['Workers', String(hashWorkers)]);
     if (dbSeconds || commits) metrics.push(['DB commits', `${commits} / ${fmtDuration(dbSeconds)}`]);
+    if (excludedFileCount) {
+        metrics.push(['Excluded', `${excludedFileCount.toLocaleString()} files / ${excludedDirCount.toLocaleString()} dirs`]);
+    }
     if (errors) metrics.push(['Errors', String(errors)]);
 
     el.scanProgressMetrics.innerHTML = metrics

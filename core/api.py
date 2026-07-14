@@ -169,6 +169,8 @@ def _progress_metrics(update: dict) -> dict:
         "current_file",
         "hash_workers",
         "mempalace_baseline",
+        "excluded_file_count",
+        "excluded_dir_count",
     )
     return {key: update.get(key) for key in keys if key in update}
 
@@ -188,6 +190,8 @@ def _empty_progress_metrics() -> dict:
         "errors": 0,
         "current_file": None,
         "hash_workers": 0,
+        "excluded_file_count": 0,
+        "excluded_dir_count": 0,
     }
 
 
@@ -879,10 +883,14 @@ def trigger_scan(request: ScanRequest, background_tasks: BackgroundTasks):
             mempalace_baseline = _build_mempalace_baseline(path, scan_id)
             result["mempalace_baseline"] = mempalace_baseline
             _complete_persisted_scan(scan_id, result, changes)
+            total_files = int(result.get("total_files") or 0)
             _set_scan_state(
                 active=False,
                 scan_session_id=scan_id,
                 stage="complete",
+                processed=total_files,
+                total=total_files,
+                percent=100 if total_files else 0,
                 message="Scan complete",
                 completed_at=datetime.utcnow().isoformat(),
                 result={
@@ -1066,10 +1074,14 @@ def initialize_and_watch(request: WatchRequest, background_tasks: BackgroundTask
             mempalace_baseline = _build_mempalace_baseline(path, scan_id)
             result["mempalace_baseline"] = mempalace_baseline
             _complete_persisted_scan(scan_id, result, changes)
+            total_files = int(result.get("total_files") or 0)
             _set_scan_state(
                 active=False,
                 scan_session_id=scan_id,
                 stage="complete",
+                processed=total_files,
+                total=total_files,
+                percent=100 if total_files else 0,
                 message="Initialization complete",
                 completed_at=datetime.utcnow().isoformat(),
                 result={

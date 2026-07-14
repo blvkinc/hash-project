@@ -4,6 +4,7 @@ This folder contains the working dissertation structure for IntegrityGuard.
 
 ## Files
 
+- `IntegrityGuard_Full_Dissertation_Authoring_Draft.md` - full authoring draft with chapters, evidence tables, rubric mapping, and final-result placeholders.
 - `IntegrityGuard_Dissertation_Baseline.md` - the main baseline dissertation document.
 - `expanded_table_of_contents.md` - detailed chapter-by-chapter dissertation structure.
 - `literature_matrix.md` - source map for the proposal references plus expanded literature areas.

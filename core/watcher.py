@@ -25,8 +25,7 @@ from .services.file_registry import (
 logger = logging.getLogger(__name__)
 
 EXCLUDED_DIRS = {
-    '.git', '__pycache__', 'node_modules', '.venv', 'env', 'venv',
-    '$RECYCLE.BIN', 'System Volume Information', '.idea', '.vscode',
+    '__pycache__', '$RECYCLE.BIN', 'System Volume Information', '.idea', '.vscode',
 }
 EXCLUDED_FILES = {
     'file_monitor.db', 'file_monitor.db-journal', 'file_monitor.db-wal',
