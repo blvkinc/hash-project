@@ -10,8 +10,8 @@ let watchedRoots = [];
 let collapsedTreeNodes = new Set();
 let expandedTreeDirs = new Set();
 let systemMonitorEnabled = false;
-let knownAlertIds = new Set();
-let alertsInitialized = false;
+let knownNotificationKeys = new Set();
+let notificationsInitialized = false;
 let desktopNotificationRequested = false;
 let toastAlertsEnabled = true;
 let desktopAlertsEnabled = false;
@@ -150,7 +150,6 @@ function refresh() {
     fetchSystemMonitorStatus();
     fetchScanStatus();
     fetchAgentActivity();
-    fetchPriorityAlerts();
     fetchNotificationHistory();
     if (selectedFilePath || selectedFileId) fetchFileTimeline(selectedFilePath, selectedFileId);
 }
@@ -614,43 +613,56 @@ async function stopWatcherForPath(path) {
 }
 
 // Alerts.
-async function fetchPriorityAlerts() {
-    try {
-        const r = await fetch(`${API}/logs?limit=40`);
-        const logs = await r.json();
-        if (!Array.isArray(logs)) return;
+function processNotificationAlerts(history) {
+    const important = history.filter(item => {
+        const priority = notificationPriority(item);
+        return priority === 'critical' || priority === 'high';
+    });
 
-        if (!alertsInitialized) {
-            knownAlertIds = new Set(logs.map(l => l.id));
-            alertsInitialized = true;
-            return;
-        }
+    if (!notificationsInitialized) {
+        knownNotificationKeys = new Set(important.map(notificationKey));
+        notificationsInitialized = true;
+        return;
+    }
 
-        const fresh = logs.filter(l => !knownAlertIds.has(l.id));
-        fresh.forEach(l => knownAlertIds.add(l.id));
+    const fresh = important
+        .filter(item => !knownNotificationKeys.has(notificationKey(item)))
+        .sort((a, b) => notificationTime(a) - notificationTime(b));
 
-        for (const log of fresh) {
-            if (log.priority !== 'critical' && log.priority !== 'high') continue;
-            const cls = log.priority === 'critical' ? 'toast-critical' : 'toast-high';
-            const msg = `${log.priority.toUpperCase()}: ${fileName(log.path)} (${log.event_type})`;
-            if (toastAlertsEnabled) toast(msg, cls);
-            if (desktopAlertsEnabled) notifyDesktop(log);
-        }
+    important.forEach(item => knownNotificationKeys.add(notificationKey(item)));
 
-        if (knownAlertIds.size > 1200) {
-            knownAlertIds = new Set(logs.map(l => l.id));
-        }
-    } catch (e) {
-        console.error('Priority alert error', e);
+    for (const item of fresh) {
+        if (toastAlertsEnabled) showAlertToast(item);
+        if (desktopAlertsEnabled) notifyDesktop(item);
+    }
+
+    if (knownNotificationKeys.size > 1200) {
+        knownNotificationKeys = new Set(important.map(notificationKey));
     }
 }
 
-async function notifyDesktop(log) {
+function notificationPriority(item) {
+    const priority = String(item.priority || '').toLowerCase();
+    if (priority === 'critical' || priority === 'high') return priority;
+
+    const severity = String(item.severity || '').toUpperCase();
+    if (severity === 'SEV-1') return 'critical';
+    if (severity === 'SEV-2') return 'high';
+    return priority || 'info';
+}
+
+function notificationTime(item) {
+    const value = item.detected_at || item.timestamp;
+    const parsed = value ? new Date(value).getTime() : 0;
+    return Number.isFinite(parsed) ? parsed : 0;
+}
+
+async function notifyDesktop(item) {
     if (!('Notification' in window)) return;
     if (!desktopAlertsEnabled) return;
 
     if (Notification.permission === 'granted') {
-        showDesktopNotification(log);
+        showDesktopNotification(item);
         return;
     }
 
@@ -662,23 +674,28 @@ async function notifyDesktop(log) {
     try {
         const permission = await Notification.requestPermission();
         if (permission === 'granted') {
-            showDesktopNotification(log);
+            showDesktopNotification(item);
         }
     } catch (e) {
         console.error('Desktop notification permission error', e);
     }
 }
 
-function showDesktopNotification(log) {
-    const priority = (log.priority || '').toUpperCase();
-    const title = `IntegrityGuard ${priority} Alert`;
-    const body = `${fileName(log.path)} (${log.event_type})`;
+function showDesktopNotification(item) {
+    const priority = notificationPriority(item);
+    const agentNotification = item.agent_notification || {};
+    const title = agentNotification.title || `IntegrityGuard ${priority.toUpperCase()} Alert`;
+    const body = agentNotification.summary
+        || `${fileName(item.path)} (${formatEventType(item.event_type)})`;
     const notification = new Notification(title, {
         body,
-        tag: `integrityguard-${log.id}`,
-        requireInteraction: log.priority === 'critical'
+        tag: `integrityguard-${notificationKey(item)}`,
+        requireInteraction: priority === 'critical'
     });
-    notification.onclick = () => window.focus();
+    notification.onclick = () => {
+        window.focus();
+        openNotificationTarget(item.path || '', notificationKey(item));
+    };
 }
 
 async function fetchNotificationHistory() {
@@ -686,6 +703,7 @@ async function fetchNotificationHistory() {
         const r = await fetch(`${API}/notifications/history?limit=80`);
         const history = await parseApiPayload(r);
         if (!r.ok || !Array.isArray(history)) return;
+        processNotificationAlerts(history);
         notificationHistory = history.slice().reverse();
         renderNotificationCenter();
     } catch (e) {
@@ -694,7 +712,9 @@ async function fetchNotificationHistory() {
 }
 
 function notificationKey(item) {
-    return String(item.event_id || `${item.timestamp}|${item.path}|${item.dispatch_type}`);
+    const eventId = item.event_id || item.id || '';
+    const detectedAt = item.detected_at || item.timestamp || '';
+    return String(`${eventId}|${detectedAt}|${item.path || ''}`);
 }
 
 function unreadNotifications() {
@@ -2041,14 +2061,100 @@ async function stopWatcher() {
 }
 
 // Toast alerts.
+function showAlertToast(item) {
+    if (!el.toastContainer) return;
+
+    const priority = notificationPriority(item);
+    const severity = item.severity || severityFromPriority(priority);
+    const agentNotification = item.agent_notification || {};
+    const title = agentNotification.title
+        || item.threat_classification
+        || `${priority.toUpperCase()} file integrity alert`;
+    const summary = agentNotification.summary
+        || item.reasoning
+        || `${formatEventType(item.event_type)} event requires review.`;
+    const key = notificationKey(item);
+    const card = document.createElement('article');
+    card.className = `toast toast-alert toast-${priority}`;
+    card.setAttribute('role', 'alert');
+    card.setAttribute('aria-live', priority === 'critical' ? 'assertive' : 'polite');
+    card.dataset.notificationKey = key;
+
+    const header = document.createElement('div');
+    header.className = 'toast-alert-head';
+
+    const badge = document.createElement('span');
+    badge.className = 'toast-alert-severity';
+    badge.textContent = severity;
+
+    const heading = document.createElement('strong');
+    heading.className = 'toast-alert-title';
+    heading.textContent = title;
+
+    const close = document.createElement('button');
+    close.className = 'toast-close';
+    close.type = 'button';
+    close.setAttribute('aria-label', 'Dismiss alert');
+    close.textContent = 'Close';
+    close.addEventListener('click', () => dismissToast(card));
+
+    header.append(badge, heading, close);
+
+    const detail = document.createElement('p');
+    detail.className = 'toast-alert-summary';
+    detail.textContent = summary;
+
+    const meta = document.createElement('div');
+    meta.className = 'toast-alert-meta';
+    const risk = item.risk_score != null ? `Risk ${item.risk_score}/10` : '';
+    meta.textContent = [
+        shortenPath(item.path || 'Unknown path'),
+        risk,
+        formatEventType(item.event_type)
+    ].filter(Boolean).join(' · ');
+
+    const actions = document.createElement('div');
+    actions.className = 'toast-alert-actions';
+
+    const view = document.createElement('button');
+    view.className = 'toast-view-alert';
+    view.type = 'button';
+    view.textContent = 'View alert';
+    view.addEventListener('click', () => {
+        dismissToast(card);
+        openNotificationTarget(item.path || '', key);
+        if (el.timelinePanel) {
+            el.timelinePanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+    });
+    actions.appendChild(view);
+
+    card.append(header, detail, meta, actions);
+    mountToast(card, priority === 'critical' ? 12000 : 8000);
+}
+
 function toast(msg, cls = 'toast-success') {
-    const t = document.createElement('div');
-    t.className = `toast ${cls}`;
-    t.textContent = msg;
-    el.toastContainer.appendChild(t);
-    setTimeout(() => {
-        if (t.parentNode) t.remove();
-    }, 5000);
+    if (!el.toastContainer) return;
+    const card = document.createElement('div');
+    card.className = `toast ${cls}`;
+    card.setAttribute('role', 'status');
+    card.textContent = msg;
+    mountToast(card, 5000);
+}
+
+function mountToast(card, timeoutMs) {
+    while (el.toastContainer.children.length >= 4) {
+        el.toastContainer.firstElementChild.remove();
+    }
+    el.toastContainer.appendChild(card);
+    card.dismissTimer = window.setTimeout(() => dismissToast(card), timeoutMs);
+}
+
+function dismissToast(card) {
+    if (!card || !card.parentNode || card.classList.contains('toast-leaving')) return;
+    window.clearTimeout(card.dismissTimer);
+    card.classList.add('toast-leaving');
+    window.setTimeout(() => card.remove(), 180);
 }
 
 // Helpers.

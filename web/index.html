@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>IntegrityGuard - File Integrity Monitor</title>
     <meta name="description" content="Real-time file integrity monitoring and change analysis">
-    <link rel="stylesheet" href="style.css?v=analysis-cards-20260619b">
+    <link rel="stylesheet" href="style.css?v=alert-toasts-20260728">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
@@ -14,7 +14,8 @@
 </head>
 
 <body>
-    <div id="toastContainer" class="toast-container"></div>
+    <div id="toastContainer" class="toast-container" aria-label="IntegrityGuard alerts"
+        aria-live="polite" aria-atomic="false"></div>
     <div class="cockpit-shell">
     <header class="navbar">
         <div class="nav-inner">
@@ -340,7 +341,7 @@
         </div>
     </aside>
 
-    <script src="app.js?v=analysis-cards-20260619b"></script>
+    <script src="app.js?v=alert-toasts-20260728"></script>
 </body>
 
 </html>
