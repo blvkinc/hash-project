@@ -9,7 +9,7 @@ from .config import settings
 from .database import SessionLocal
 from .models import FileIdentity, FileRecord, FileLog
 from .hasher import calculate_file_hash, get_file_metadata
-from .file_content import read_text_snippet
+from .file_content import ANALYZABLE_BINARY_EXTENSIONS, read_analysis_snippet
 from .file_identity import (
     attach_identity_to_record,
     find_identity_by_platform_id,
@@ -42,10 +42,11 @@ BASELINE_TRIAGE_EXTENSIONS = {
 }
 
 DEFERRED_BASELINE_ANALYSIS_EXTENSIONS = {
-    '.bat', '.bash', '.cmd', '.conf', '.config', '.crt', '.env', '.ini',
-    '.js', '.json', '.key', '.pem', '.php', '.pl', '.ps1', '.py', '.rb',
-    '.sh', '.sql', '.ts', '.xml', '.yaml', '.yml',
-}
+    '.bat', '.bash', '.c', '.cmd', '.conf', '.config', '.cpp', '.crt', '.cs',
+    '.env', '.go', '.h', '.ini', '.java', '.js', '.json', '.jsx', '.key',
+    '.lua', '.pem', '.php', '.pl', '.ps1', '.py', '.rb', '.rs', '.sh',
+    '.sql', '.ts', '.tsx', '.xml', '.yaml', '.yml',
+} | ANALYZABLE_BINARY_EXTENSIONS
 
 
 def _count_files_quietly(root_path: str) -> int:
@@ -777,11 +778,11 @@ def _baseline_triage_skip_reason(file_path: str, metadata: dict | None) -> str |
 
     size = int((metadata or {}).get("size") or 0)
     max_bytes = max(0, int(settings.baseline_analysis_max_bytes or 0))
-    if max_bytes and size > max_bytes:
+    ext = os.path.splitext(file_path.lower())[1]
+    if max_bytes and size > max_bytes and ext not in ANALYZABLE_BINARY_EXTENSIONS:
         return f"file size {size} bytes exceeds the {max_bytes} byte baseline analysis limit"
 
-    ext = os.path.splitext(file_path.lower())[1]
-    if ext not in BASELINE_TRIAGE_EXTENSIONS:
+    if ext not in BASELINE_TRIAGE_EXTENSIONS and ext not in ANALYZABLE_BINARY_EXTENSIONS:
         return f"extension '{ext or 'none'}' is not in the baseline text-analysis allowlist"
     return None
 
@@ -996,11 +997,11 @@ def _should_triage_baseline_file(file_path: str, metadata: dict | None) -> bool:
 
     size = int((metadata or {}).get("size") or 0)
     max_bytes = max(0, int(settings.baseline_analysis_max_bytes or 0))
-    if max_bytes and size > max_bytes:
+    ext = os.path.splitext(file_path.lower())[1]
+    if max_bytes and size > max_bytes and ext not in ANALYZABLE_BINARY_EXTENSIONS:
         return False
 
-    ext = os.path.splitext(file_path.lower())[1]
-    return ext in BASELINE_TRIAGE_EXTENSIONS
+    return ext in BASELINE_TRIAGE_EXTENSIONS or ext in ANALYZABLE_BINARY_EXTENSIONS
 
 
 def _should_queue_baseline_analysis(
@@ -1571,5 +1572,9 @@ def compare_and_log(
 
 
 def _read_snippet(file_path: str, max_chars: int = 5000) -> str:
-    """Read first N chars of a file for analysis context."""
-    return read_text_snippet(file_path, max_chars)
+    """Read bounded text or static binary evidence for analysis."""
+    return read_analysis_snippet(
+        file_path,
+        max_chars=max(max_chars, int(settings.analysis_content_max_chars or 0)),
+        max_binary_bytes=int(settings.binary_analysis_max_bytes or 0),
+    )

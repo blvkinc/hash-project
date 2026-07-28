@@ -16,7 +16,7 @@ from .config import settings
 from .database import SessionLocal
 from .models import FileLog, FileRecord
 from .hasher import calculate_security_file_hash
-from .file_content import read_text_snippet
+from .file_content import read_analysis_snippet
 from .analysis_cache import (
     build_analysis_cache_meta,
     get_cached_analysis,
@@ -156,8 +156,12 @@ def _extract_event_context(analysis_json) -> dict:
 
 
 def _read_deferred_snippet(file_path: str, max_chars: int = 5000) -> str:
-    """Read a bounded text snippet for hash-first deferred analysis."""
-    return read_text_snippet(file_path, max_chars)
+    """Read bounded text or static binary evidence after hash capture."""
+    return read_analysis_snippet(
+        file_path,
+        max_chars=max(max_chars, int(settings.analysis_content_max_chars or 0)),
+        max_binary_bytes=int(settings.binary_analysis_max_bytes or 0),
+    )
 
 
 def _latest_previous_snippet(
@@ -539,7 +543,11 @@ def _attach_event_context(
     return merged
 
 
-def _apply_tier_prefilter(log: FileLog, registry_signal: dict | None = None) -> dict | None:
+def _apply_tier_prefilter(
+    log: FileLog,
+    registry_signal: dict | None = None,
+    registry_context: dict | None = None,
+) -> dict | None:
     """
     Apply static prefiltering using file-criticality tiers.
 
@@ -555,7 +563,11 @@ def _apply_tier_prefilter(log: FileLog, registry_signal: dict | None = None) -> 
     tier = (
         registry_signal.get("tier")
         if registry_signal and registry_signal.get("tier") is not None
-        else get_tier_for_path(log.path)
+        else (
+            registry_context.get("tier")
+            if registry_context and registry_context.get("tier") is not None
+            else get_tier_for_path(log.path)
+        )
     )
 
     if tier == 4:
@@ -716,7 +728,11 @@ def process_pending_analysis(batch_size: int | None = None):
                     continue
 
                 # Tier prefilter
-                prefilter_result = _apply_tier_prefilter(log, registry_signal)
+                prefilter_result = _apply_tier_prefilter(
+                    log,
+                    registry_signal=registry_signal,
+                    registry_context=registry_payload,
+                )
 
                 if prefilter_result is not None:
                     # Tier 1 and Tier 4 still get a content check when readable.

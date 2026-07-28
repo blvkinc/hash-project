@@ -11,7 +11,7 @@ from .config import settings
 from .database import SessionLocal
 from .models import FileIdentity, FileRecord, FileLog
 from .hasher import calculate_file_hash, get_file_metadata
-from .file_content import read_text_snippet
+from .file_content import read_analysis_snippet
 from .file_identity import (
     attach_identity_to_record,
     find_identity_by_platform_id,
@@ -46,7 +46,11 @@ def _should_ignore(path: str) -> bool:
 
 
 def _read_snippet(file_path: str, max_chars: int = 5000) -> str:
-    return read_text_snippet(file_path, max_chars)
+    return read_analysis_snippet(
+        file_path,
+        max_chars=max(max_chars, int(settings.analysis_content_max_chars or 0)),
+        max_binary_bytes=int(settings.binary_analysis_max_bytes or 0),
+    )
 
 
 def _watch_registry_context(

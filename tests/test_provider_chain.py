@@ -58,7 +58,7 @@ def test_ollama_success_short_circuits(_reset_settings):
             "/tmp/evil.sh", "modified", diff="cat /etc/shadow", metadata={},
         )
 
-    assert result["analysis_source"] == "ollama"
+    assert result["analysis_source"].startswith("ollama")
     assert result["risk_score"] == 9
     assert result["priority"] == "critical"
     ollama_post.assert_called_once()

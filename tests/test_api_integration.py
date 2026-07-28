@@ -358,6 +358,44 @@ def test_deferred_baseline_analysis_reads_content_after_hash_capture(isolated_ap
     assert "Reverse Shell" in event["analysis"]["reasoning"]
 
 
+def test_hash_first_baseline_analyzes_source_and_binary_attack_chain(isolated_app, monkeypatch):
+    ctx = isolated_app
+    source = ctx["workdir"] / "vite.cpp"
+    executable = ctx["workdir"] / "vite.exe"
+    attack_chain = """
+const wchar_t* host = L"api.telegram.org";
+const wchar_t* poll = L"/getUpdates";
+const wchar_t* reply = L"/sendMessage";
+const char* route = "/shell ";
+const char* command = "cmd.exe /c whoami";
+CreateProcessA(nullptr, command, nullptr, nullptr, true, CREATE_NO_WINDOW,
+               nullptr, nullptr, nullptr, nullptr);
+"""
+    source.write_text(("int harmless = 1;\n" * 500) + attack_chain, encoding="utf-8")
+    executable.write_bytes(
+        b"MZ\x00\x00"
+        + "api.telegram.org".encode("utf-16le")
+        + b"\x00\x00/getUpdates\x00/sendMessage\x00/shell \x00"
+        + b"cmd.exe /c whoami\x00CreateProcessA\x00CREATE_NO_WINDOW\x00"
+    )
+
+    result = ctx["scanner"].scan_and_baseline(str(ctx["workdir"]))
+
+    assert result["baseline_analysis_queued"] == 2
+    monkeypatch.setattr(ctx["background_analysis"], "_BACKLOG_THRESHOLD", 1)
+    _drain_analysis(ctx)
+
+    for path in (source, executable):
+        timeline = ctx["client"].get(
+            "/api/files/timeline", params={"path": str(path)}
+        ).json()
+        event = timeline["events"][0]
+        assert event["status"] == "analyzed"
+        assert event["analysis"]["priority"] == "critical"
+        assert event["analysis"]["risk_score"] == 10
+        assert event["analysis"]["threat_type"] == "rat"
+
+
 def test_legacy_baseline_triage_payload_is_unwrapped(isolated_app):
     """Old rows stored baseline triage nested under baseline_triage."""
     ctx = isolated_app

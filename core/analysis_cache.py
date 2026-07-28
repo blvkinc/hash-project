@@ -11,7 +11,9 @@ from sqlalchemy.orm import Session
 
 from .models import AnalysisCache
 
-_CACHE_VERSION = 1
+# Bump this whenever prompt policy, evidence extraction, or verdict merging
+# changes in a way that can alter an existing content verdict.
+_CACHE_VERSION = 3
 _UNCACHEABLE_EVENTS = {"deleted", "renamed"}
 _VERDICT_CONTEXT_KEYS = {
     "event_context",
